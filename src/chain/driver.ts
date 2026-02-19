@@ -1,5 +1,5 @@
 import type { Abi } from 'viem';
-import type { ChainId, TransactionHash } from '../types.js';
+import type { AgentAddress, ChainId, Role, TransactionHash } from '../types.js';
 import type { ServiceError } from '../errors.js';
 import type { Result } from '../types.js';
 
@@ -53,4 +53,17 @@ export interface ChainDriver {
    * Get the RPC URL (for informational purposes only)
    */
   getRpcUrl(): string;
+
+  /**
+   * Get agent's role from RBAC contract
+   * Calls RBAC.getAgentRole(agent) → Role
+   * Returns domain Role with roleId, name, permissions array, and isActive status
+   *
+   * Used by PermissionCache to populate cache on miss
+   * Timeout: 30 seconds
+   * Retry: exponential backoff (3 attempts, 100ms base, full jitter)
+   *
+   * On failure: throw Error (will be caught by cache's retry logic)
+   */
+  getRoleForAgent(agent: AgentAddress): Promise<Role>;
 }
