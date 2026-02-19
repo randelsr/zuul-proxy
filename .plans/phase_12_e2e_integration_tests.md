@@ -203,11 +203,10 @@ describe('E2E Integration Tests', () => {
   // SCENARIO 4: Emergency revoke (wallet revoked)
   // ========================================================================
 
-  it('should return 403 -32012 when wallet is revoked', async () => {
+  it.skip('should return 403 -32012 when wallet is revoked', async () => {
     // This scenario requires setting wallet inactive in RBAC contract
     // For MVP: documented limitation, requires contract interaction
-
-    expect(true).toBe(true) // Placeholder
+    // TODO: Implement after Phase 13 (demo scenarios with revocation flow)
   })
 
   // ========================================================================
@@ -215,31 +214,69 @@ describe('E2E Integration Tests', () => {
   // ========================================================================
 
   it('should handle successful request with audit', async () => {
-    const nonce = 'abc-123-def-456' as Nonce
-    const timestamp = Math.floor(Date.now() / 1000) as Timestamp
-    const targetUrl = 'http://localhost:9999/endpoint'
-    const payload = buildCanonicalPayload('GET', targetUrl, nonce, timestamp)
-    const signature = await testAccount.signMessage({ message: payload })
+    // Mock global fetch to simulate upstream response
+    const originalFetch = global.fetch
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'success', data: { id: 123 } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
 
-    // For a real end-to-end test, this would:
-    // 1. Verify signature ✓
-    // 2. Check RBAC permission ✓
-    // 3. Inject API key into request
-    // 4. Forward to upstream
-    // 5. Capture audit entry
-    // 6. Wrap response with _governance
+    try {
+      const nonce = 'abc-123-def-456' as Nonce
+      const timestamp = Math.floor(Date.now() / 1000) as Timestamp
+      const targetUrl = 'http://localhost:9999/endpoint'
+      const payload = buildCanonicalPayload('GET', targetUrl, nonce, timestamp)
+      const signature = await testAccount.signMessage({ message: payload })
 
-    // For MVP integration tests, we verify structure
-    expect(signature).toMatch(/^0x[a-f0-9]{130}$/)
-    expect(nonce).toBeDefined()
-    expect(timestamp).toBeGreaterThan(0)
+      // Make actual request through app
+      const response = await app.request(
+        new Request(`http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`, {
+          method: 'GET',
+          headers: {
+            'X-Agent-Address': agentAddress,
+            'X-Signature': signature,
+            'X-Nonce': nonce,
+            'X-Timestamp': String(timestamp),
+          },
+        })
+      )
+
+      expect(response.status).toBe(200)
+
+      const json = await response.json()
+
+      // Verify result contains upstream response
+      expect(json.result).toBeDefined()
+      expect(json.result.message).toBe('success')
+      expect(json.result.data.id).toBe(123)
+
+      // Verify _governance metadata
+      expect(json._governance).toBeDefined()
+      expect(json._governance.request_id).toBeDefined()
+      expect(json._governance.agent).toBe(agentAddress)
+      expect(json._governance.tool).toBe('test-api')
+      expect(json._governance.action).toBe('read')
+      expect(json._governance.target_url).toBe(targetUrl)
+      expect(json._governance.chain_id).toBeDefined()
+      expect(json._governance.timestamp).toBeGreaterThan(0)
+
+      // Verify fetch was called with correct parameters
+      expect(global.fetch).toHaveBeenCalled()
+      const fetchCall = (global.fetch as any).mock.calls[0]
+      expect(fetchCall[0]).toBe(targetUrl)
+      expect(fetchCall[1].headers['Authorization']).toBe('Bearer test-api-key')
+    } finally {
+      global.fetch = originalFetch
+    }
   })
 
   // ========================================================================
   // SCENARIO 6: RBAC cache hit (second request uses cache)
   // ========================================================================
 
-  it('should use permission cache on second request', async () => {
+  it.skip('should use permission cache on second request', async () => {
     // First request: cache miss
     const nonce1 = 'abc-123-def-456' as Nonce
     const timestamp1 = Math.floor(Date.now() / 1000) as Timestamp
@@ -249,7 +286,7 @@ describe('E2E Integration Tests', () => {
     const timestamp2 = Math.floor(Date.now() / 1000) as Timestamp
 
     // For MVP: permission cache TTL verified in Phase 5 tests
-    expect(true).toBe(true) // Placeholder for cache integration
+    // TODO: Implement cache hit detection with spy on chainDriver.getRoleForAgent()
   })
 
   // ========================================================================
@@ -316,19 +353,19 @@ describe('E2E Integration Tests', () => {
   // SCENARIO 9: Upstream timeout
   // ========================================================================
 
-  it('should return 504 -32021 on upstream timeout', async () => {
+  it.skip('should return 504 -32021 on upstream timeout', async () => {
     // Configure executor to timeout
-    // This would require mocking fetch with a timeout
-    expect(true).toBe(true) // Placeholder
+    // This would require mocking fetch with a timeout via AbortSignal
+    // TODO: Implement timeout simulation with vi.useFakeTimers() or AbortController mock
   })
 
   // ========================================================================
   // SCENARIO 10: Upstream error
   // ========================================================================
 
-  it('should return 502 -32020 on upstream error', async () => {
+  it.skip('should return 502 -32020 on upstream error', async () => {
     // Configure mock upstream to return 500
-    expect(true).toBe(true) // Placeholder
+    // TODO: Implement error response handling with mocked fetch returning 500
   })
 
   // ========================================================================

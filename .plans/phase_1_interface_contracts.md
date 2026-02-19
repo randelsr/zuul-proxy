@@ -142,6 +142,7 @@ export type Role = Readonly<{
   id: RoleId
   name: string
   permissions: ReadonlyArray<Permission>
+  isActive: boolean
 }>
 
 /**
@@ -150,6 +151,18 @@ export type Role = Readonly<{
 export type Permission = Readonly<{
   tool: ToolKey
   actions: ReadonlyArray<PermissionAction>
+}>
+
+/**
+ * Internal cache type for RBAC lookups
+ * Converts domain Role (with ReadonlyArray<Permission>) to runtime Map for O(1) lookups
+ * Used internally by PermissionCache; not exposed to middleware
+ */
+export type RoleWithPermissions = Readonly<{
+  id: RoleId
+  name: string
+  permissions: ReadonlyMap<ToolKey, ReadonlySet<PermissionAction>>
+  isActive: boolean
 }>
 
 // ============================================================================
@@ -249,7 +262,7 @@ export type JsonRpcResponse<T> = JsonRpcSuccess<T> | JsonRpcError
  * Use Result<T, E> instead of throwing for expected failures
  * Reserve `throw` for unrecoverable invariant violations
  */
-export type Result<T, E extends Error = Error> =
+export type Result<T, E extends ZuulError = ZuulError> =
   | Readonly<{ ok: true; value: T }>
   | Readonly<{ ok: false; error: E }>
 

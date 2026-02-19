@@ -7,7 +7,7 @@ Every build follows this pipeline order using GitHub Actions (`.github/workflows
 1. **Checkout and Setup** - Clone repo, set up Node.js (pin to LTS), cache `node_modules` via `actions/cache` with `pnpm-lock.yaml` hash key.
 2. **Install** - `pnpm install --frozen-lockfile` (clean install for reproducible builds).
 3. **Static Analysis** - Run in parallel: `pnpm lint` (ESLint), `pnpm format:check` (Prettier), `pnpm typecheck` (tsc --noEmit).
-4. **Test** - `pnpm test:coverage` with minimum 80% threshold; fail the build if coverage drops below gate.
+4. **Test** - `pnpm test:coverage` with minimum 90% threshold; fail the build if coverage drops below gate.
 5. **Contract Compilation** - `pnpm contracts:build` for Solidity RBAC and audit contracts; cache compiled artifacts between runs.
 6. **Build** - `pnpm build` for TypeScript compilation; optionally `docker compose build` to verify container image.
 7. **Deploy** - Gated on all previous steps; only on `main` branch. Contract deployment to Hedera testnet via `scripts/deploy-contracts.sh`, proxy deployment via `scripts/deploy.sh`.

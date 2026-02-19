@@ -80,8 +80,25 @@ const logger = getLogger('rbac:cache')
 export type RoleWithPermissions = Readonly<{
   roleId: RoleId
   isActive: boolean
-  permissions: Map<ToolKey, Set<PermissionAction>>
+  permissions: ReadonlyMap<ToolKey, ReadonlySet<PermissionAction>>
 }>
+
+/**
+ * Convert domain Role (with ReadonlyArray<Permission>) to RoleWithPermissions (with Map for O(1) lookups)
+ */
+function convertToRoleWithPermissions(role: Role): RoleWithPermissions {
+  const permissionsMap = new Map<ToolKey, ReadonlySet<PermissionAction>>()
+
+  for (const permission of role.permissions) {
+    permissionsMap.set(permission.tool, new Set(permission.actions))
+  }
+
+  return {
+    roleId: role.id,
+    isActive: role.isActive,
+    permissions: permissionsMap,
+  }
+}
 
 /**
  * Permission cache with TTL
@@ -157,16 +174,15 @@ export class PermissionCache {
 
         logger.debug({ agent, attempt }, 'Attempting to read from chain')
 
-        // Simulate successful read (actual implementation in Phase 7)
-        // const { roleId, isActive } = await chainDriver.callContract(...)
-        // Return mock role for now
-        const mockRole: RoleWithPermissions = {
-          roleId: '0x' as any,
-          isActive: true,
-          permissions: new Map(),
-        }
+        // Read role from RBAC contract via chain driver
+        // Contract returns domain Role with ReadonlyArray<Permission>
+        // Convert to RoleWithPermissions with Map<ToolKey, Set<PermissionAction>> for O(1) lookups
+        const domainRole = await chainDriver.getRoleForAgent(agent)
 
-        return { ok: true, value: mockRole }
+        // Convert domain role to cache-internal format with Map permissions
+        const cacheRole = convertToRoleWithPermissions(domainRole)
+
+        return { ok: true, value: cacheRole }
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error))
         logger.warn({ agent, attempt, error: lastError.message }, 'Chain read attempt failed')

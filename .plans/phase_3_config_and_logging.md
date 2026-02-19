@@ -211,16 +211,66 @@ const logger = getLogger('config:loader')
  * @returns Validated AppConfig
  * @throws Error if file not found or validation fails
  */
-export async function loadConfig(filePath: string): Promise<AppConfig> {
+/**
+ * Substitute environment variables in config object
+ * Recursively replaces ${VAR_NAME} with process.env.VAR_NAME
+ */
+function substituteEnvVars(obj: unknown): unknown {
+  if (typeof obj === 'string') {
+    // Replace ${ENV_VAR} with process.env.ENV_VAR
+    return obj.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (_match, varName) => {
+      const value = process.env[varName]
+      if (value === undefined) {
+        throw new Error(`Environment variable ${varName} not found (referenced in config)`)
+      }
+      return value
+    })
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => substituteEnvVars(item))
+  }
+
+  if (obj !== null && typeof obj === 'object') {
+    const result: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = substituteEnvVars(value)
+    }
+    return result
+  }
+
+  return obj
+}
+
+/**
+ * Type for file reader function (injectable for testing)
+ */
+export type FileReader = (path: string) => Promise<string>
+
+/**
+ * Default file reader using fs.readFile
+ */
+const defaultFileReader: FileReader = async (path: string) => {
+  return fs.readFile(path, 'utf-8')
+}
+
+export async function loadConfig(
+  filePath: string,
+  fileReader: FileReader = defaultFileReader
+): Promise<AppConfig> {
   logger.debug({ filePath }, 'Loading configuration from file')
 
   try {
-    // Read file
-    const content = await fs.readFile(filePath, 'utf-8')
+    // Read file (injected for testing)
+    const content = await fileReader(filePath)
 
     // Parse YAML
-    const rawConfig = yaml.parse(content) as RawConfig
+    let rawConfig = yaml.parse(content) as RawConfig
     logger.debug({ rawConfig }, 'Parsed YAML')
+
+    // Substitute environment variables (${VAR_NAME} → process.env.VAR_NAME)
+    rawConfig = substituteEnvVars(rawConfig) as RawConfig
+    logger.debug('Environment variables substituted in config')
 
     // Validate against schema
     const config = validateConfig(rawConfig)
@@ -255,57 +305,63 @@ import pino, { Logger } from 'pino'
 import type { ApiKeyHandle, EncryptedPayload, Signature } from './types.js'
 
 /**
- * Global logger configuration
- * Set once at startup, used by all modules
+ * Logger factory: creates loggers without global state
+ * Each module gets its own logger instance via dependency injection
  */
-let globalLogger: Logger | null = null
-
-/**
- * Initialize global logger (call once at application startup)
- */
-export function initLogger(options?: pino.LoggerOptions): Logger {
-  globalLogger = pino({
-    level: process.env.LOG_LEVEL || 'info',
-    transport:
-      process.env.NODE_ENV === 'production'
-        ? undefined
-        : {
-            target: 'pino-pretty',
-            options: {
-              colorize: true,
-              translateTime: 'SYS:standard',
-              ignore: 'pid,hostname',
+function createLogger(module: string, options?: pino.LoggerOptions): Logger {
+  return pino(
+    {
+      level: process.env.LOG_LEVEL || 'info',
+      transport:
+        process.env.NODE_ENV === 'production'
+          ? undefined
+          : {
+              target: 'pino-pretty',
+              options: {
+                colorize: true,
+                translateTime: 'SYS:standard',
+                ignore: 'pid,hostname',
+              },
             },
-          },
-    serializers: {
-      // Redact sensitive fields at serializer level (pino mechanism)
-      apiKey: () => '[REDACTED]',
-      apiKeyHandle: () => '[REDACTED]',
-      encryptedPayload: () => '[REDACTED]',
-      signature: () => '[REDACTED]',
-      agentSignature: () => '[REDACTED]',
-      proxySignature: () => '[REDACTED]',
-      privateKey: () => '[REDACTED]',
-      encryptionKey: () => '[REDACTED]',
-      error: pino.stdSerializers.err, // Standard error serialization
+      serializers: {
+        // Redact sensitive fields at serializer level (pino mechanism)
+        apiKey: () => '[REDACTED]',
+        apiKeyHandle: () => '[REDACTED]',
+        encryptedPayload: () => '[REDACTED]',
+        signature: () => '[REDACTED]',
+        agentSignature: () => '[REDACTED]',
+        proxySignature: () => '[REDACTED]',
+        privateKey: () => '[REDACTED]',
+        encryptionKey: () => '[REDACTED]',
+        error: pino.stdSerializers.err, // Standard error serialization
+      },
+      ...options,
     },
-    ...options,
-  })
-  return globalLogger
+    pino.transport({
+      target: 'pino/file',
+      options: { destination: 1 }, // stdout
+    })
+  ).child({ module })
 }
 
 /**
- * Get a child logger with context
+ * Initialize root logger (call once at application startup)
+ * For testing and production, this creates the root logger configuration
+ */
+export function initLogger(options?: pino.LoggerOptions): Logger {
+  return createLogger('app', options)
+}
+
+/**
+ * Get a logger for a module
+ * Each call creates a new logger instance scoped to the module
  * Module name is used to categorize log output
  *
  * @param module Module name (e.g., "auth:signature", "rbac:cache")
  * @returns Logger scoped to this module
  */
 export function getLogger(module: string): Logger {
-  if (!globalLogger) {
-    globalLogger = initLogger()
-  }
-  return globalLogger.child({ module })
+  return createLogger(module)
 }
 
 /**
@@ -381,28 +437,19 @@ export { loadConfig, loadConfigDefault } from './loader.js'
 ### 6. tests/config/test_loader.ts
 
 ```typescript
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { promises as fs } from 'fs'
-import path from 'path'
+import { describe, it, expect, beforeEach } from 'vitest'
+import type { FileReader } from '../../src/config/loader.js'
 import { loadConfig } from '../../src/config/loader.js'
 
 describe('Config Loader', () => {
-  const testDir = '/tmp/zuul-config-test'
-
-  beforeEach(async () => {
-    await fs.mkdir(testDir, { recursive: true })
-  })
-
-  afterEach(async () => {
-    await fs.rm(testDir, { recursive: true, force: true })
-  })
-
-  it('should load valid config.yaml', async () => {
+  beforeEach(() => {
     // Set required env vars
     process.env.GITHUB_API_KEY = 'ghp_test123'
     process.env.SLACK_API_KEY = 'xoxb_test456'
     process.env.HEDERA_RPC_URL = 'https://testnet.hashio.io/api'
+  })
 
+  it('should load valid config.yaml', async () => {
     const configContent = `
 tools:
   - key: github
@@ -424,7 +471,7 @@ roles:
 chain:
   name: hedera
   chainId: 295
-  rpcUrl: https://testnet.hashio.io/api
+  rpcUrl: \${HEDERA_RPC_URL}
 
 cache:
   ttlSeconds: 300
@@ -436,18 +483,19 @@ server:
   writeTimeoutMs: 60000
 `
 
-    const configPath = path.join(testDir, 'config.yaml')
-    await fs.writeFile(configPath, configContent)
+    // Mock file reader (no real filesystem calls)
+    const mockFileReader: FileReader = async () => configContent
 
-    const config = await loadConfig(configPath)
+    const config = await loadConfig('config.yaml', mockFileReader)
 
     expect(config.tools).toHaveLength(1)
     expect(config.tools[0].key).toBe('github')
     expect(config.roles).toHaveLength(1)
     expect(config.chain.chainId).toBe(295)
+    expect(config.chain.rpcUrl).toBe('https://testnet.hashio.io/api') // Env var substituted
   })
 
-  it('should fail on missing keyRef environment variable', async () => {
+  it('should fail on missing environment variable', async () => {
     delete process.env.MISSING_API_KEY
 
     const configContent = `
@@ -470,10 +518,10 @@ chain:
   rpcUrl: http://localhost:8545
 `
 
-    const configPath = path.join(testDir, 'config.yaml')
-    await fs.writeFile(configPath, configContent)
+    // Mock file reader
+    const mockFileReader: FileReader = async () => configContent
 
-    await expect(loadConfig(configPath)).rejects.toThrow(
+    await expect(loadConfig('config.yaml', mockFileReader)).rejects.toThrow(
       /Environment variable MISSING_API_KEY not found/
     )
   })

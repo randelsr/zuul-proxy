@@ -76,9 +76,13 @@ Key sections:
     "@vitest/coverage-v8": "1.0.0",
     "hardhat": "2.19.0",
     "@nomicfoundation/hardhat-ignition": "0.15.0",
+    "@nomicfoundation/hardhat-viem": "2.0.0",
     "@typechain/hardhat": "9.0.0",
     "typechain": "8.3.0",
-    "solidity-coverage": "0.8.5"
+    "solidity-coverage": "0.8.5",
+    "pino-pretty": "11.0.0",
+    "husky": "8.0.3",
+    "lint-staged": "15.0.0"
   }
 }
 ```
@@ -98,9 +102,9 @@ Key sections:
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ES2022",
+    "module": "Node16",
     "lib": ["ES2022"],
-    "moduleResolution": "node",
+    "moduleResolution": "node16",
     "resolveJsonModule": true,
     "allowJs": false,
     "declaration": true,

@@ -121,8 +121,8 @@ export function createServer(
 
   process.on('SIGTERM', async () => {
     logger.info('SIGTERM received, initiating graceful shutdown')
-    // Drain audit queue before exit
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Drain audit queue to ensure all entries are written before exit
+    await auditQueue.drain()
     nonceValidator.destroy()
     logger.info('Server shutdown complete')
     process.exit(0)
@@ -130,7 +130,8 @@ export function createServer(
 
   process.on('SIGINT', async () => {
     logger.info('SIGINT received, initiating graceful shutdown')
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Drain audit queue to ensure all entries are written before exit
+    await auditQueue.drain()
     nonceValidator.destroy()
     logger.info('Server shutdown complete')
     process.exit(0)
@@ -149,6 +150,7 @@ export async function startServer(
   auditQueue: AuditQueue,
   executor: ProxyExecutor
 ): Promise<void> {
+  const { serve } = await import('@hono/node-server')
   const app = createServer(config, chainDriver, custody, auditQueue, executor)
 
   logger.info(
@@ -156,8 +158,9 @@ export async function startServer(
     'Starting HTTP server'
   )
 
-  const server = app.listen(
+  serve(
     {
+      fetch: app.fetch,
       port: config.server.port,
       hostname: config.server.host,
     },
@@ -183,7 +186,10 @@ export async function startServer(
 import type { Context } from 'hono'
 import { z } from 'zod'
 import type { ToolRegistry } from '../../proxy/tool-registry.js'
+import type { PermissionCache } from '../../rbac/cache.js'
+import type { ChainDriver } from '../../chain/driver.js'
 import type { AgentAddress } from '../../types.js'
+import type { AppConfig } from '../../config/types.js'
 import { getLogger } from '../../logging.js'
 
 const logger = getLogger('handlers:rpc')
@@ -203,8 +209,14 @@ type RpcRequest = z.infer<typeof RpcRequestSchema>
 /**
  * RPC handler: tools/list, tools/describe
  * No signature verification required (agent_address used to filter results)
+ * tools/list filters by agent permissions from PermissionCache
  */
-export function rpcHandler(toolRegistry: ToolRegistry) {
+export function rpcHandler(
+  toolRegistry: ToolRegistry,
+  permissionCache: PermissionCache,
+  chainDriver: ChainDriver,
+  config: AppConfig
+) {
   return async (context: Context) => {
     const requestId = context.get('requestId') as string
 
@@ -226,6 +238,7 @@ export function rpcHandler(toolRegistry: ToolRegistry) {
           },
           _governance: {
             request_id: requestId,
+            chain_id: config.chain.chainId,
             timestamp: Math.floor(Date.now() / 1000),
             error_type: 'request/malformed',
           },
@@ -245,15 +258,42 @@ export function rpcHandler(toolRegistry: ToolRegistry) {
         const allTools = toolRegistry.listTools()
 
         // Filter tools by agent permission (if agent_address provided)
-        // For MVP, return all tools (actual filtering in Phase 5)
-        const tools = allTools.map((tool) => ({
-          key: tool.key,
-          base_url: tool.baseUrl,
-          description: tool.description,
-          endpoints: tool.endpoints,
-          // Note: allowed_actions would be filtered by agent permission
-          // Implementation deferred to Phase 5 (RBAC cache)
-        }))
+        let tools: Array<{
+          key: string
+          base_url: string
+          description: string
+          allowed_actions: string[]
+        }> = []
+
+        if (agentAddress) {
+          // Get agent's permissions from cache
+          const roleResult = await permissionCache.get(agentAddress, chainDriver)
+
+          if (roleResult.ok) {
+            const role = roleResult.value
+            // Filter tools: only include if agent has at least one permission for that tool
+            for (const tool of allTools) {
+              const toolPermissions = role.permissions.get(tool.key)
+              if (toolPermissions && toolPermissions.size > 0) {
+                tools.push({
+                  key: tool.key,
+                  base_url: tool.baseUrl,
+                  description: tool.description,
+                  allowed_actions: Array.from(toolPermissions),
+                })
+              }
+            }
+          } else {
+            // Cache miss or chain error: return empty tools list (fail closed)
+            logger.warn(
+              { requestId, agent: agentAddress, error: roleResult.error.message },
+              'Failed to get agent permissions, returning no tools'
+            )
+          }
+        } else {
+          // No agent address provided: return no tools (require explicit agent identity)
+          logger.debug({ requestId }, 'tools/list: no agent_address provided, returning empty list')
+        }
 
         context.status(200)
         return context.json({
@@ -263,6 +303,7 @@ export function rpcHandler(toolRegistry: ToolRegistry) {
           _governance: {
             request_id: requestId,
             agent: agentAddress,
+            chain_id: config.chain.chainId,
             timestamp: Math.floor(Date.now() / 1000),
           },
         })
@@ -288,6 +329,7 @@ export function rpcHandler(toolRegistry: ToolRegistry) {
             _governance: {
               request_id: requestId,
               agent: agentAddress,
+              chain_id: config.chain.chainId,
               timestamp: Math.floor(Date.now() / 1000),
               error_type: 'request/malformed',
             },
@@ -310,6 +352,7 @@ export function rpcHandler(toolRegistry: ToolRegistry) {
               request_id: requestId,
               agent: agentAddress,
               tool: toolKey,
+              chain_id: config.chain.chainId,
               timestamp: Math.floor(Date.now() / 1000),
               error_type: 'request/unknown_tool',
             },
@@ -354,6 +397,7 @@ export function rpcHandler(toolRegistry: ToolRegistry) {
         _governance: {
           request_id: requestId,
           agent: agentAddress,
+          chain_id: config.chain.chainId,
           timestamp: Math.floor(Date.now() / 1000),
           error_type: 'request/unknown_method',
         },
@@ -370,6 +414,7 @@ export function rpcHandler(toolRegistry: ToolRegistry) {
         },
         _governance: {
           request_id: requestId,
+          chain_id: config.chain.chainId,
           timestamp: Math.floor(Date.now() / 1000),
           error_type: 'service/internal_error',
         },
@@ -482,12 +527,12 @@ export function forwardHandler(
           'Upstream request failed'
         )
 
-        // Determine HTTP status
+        // Determine HTTP status and error code
         let httpStatus = 502 // Default: bad gateway
-        let errorCode = -32020 // Default: upstream error
+        let errorCode = execResult.error.code // Use error code directly from executor
 
         if (execResult.error.code === -32021) {
-          // Timeout
+          // Timeout: use 504 status code
           httpStatus = 504
         }
 
@@ -541,20 +586,28 @@ export function forwardHandler(
         })
       } else if (result.contentType === 'sse') {
         // SSE response: inject _governance as first event
-        context.header('Content-Type', 'text/event-stream')
-        context.header('Cache-Control', 'no-cache')
-        context.header('Connection', 'keep-alive')
+        const { streamSSE } = await import('hono/streaming')
 
-        const encoded = Buffer.from(JSON.stringify(governance)).toString('base64')
-        context.text(`event: _governance\ndata: ${encoded}\n\n`)
+        return streamSSE(context, async (stream) => {
+          // First event: _governance metadata
+          await stream.writeSSE({
+            event: '_governance',
+            data: JSON.stringify(governance),
+          })
 
-        // Then stream the rest of the response
-        if (result.body && typeof result.body === 'object' && 'pipe' in result.body) {
-          // Readable stream
-          result.body.pipe(context.raw)
-        }
-
-        return
+          // Then stream the rest of the response
+          if (result.body && typeof result.body === 'object' && 'pipe' in result.body) {
+            // If result.body is a Node Readable stream, convert it
+            const readable = result.body as NodeJS.ReadableStream
+            await new Promise((resolve, reject) => {
+              readable.on('data', (chunk) => {
+                stream.write(chunk.toString('utf-8'))
+              })
+              readable.on('end', resolve)
+              readable.on('error', reject)
+            })
+          }
+        })
       } else {
         // Binary/text response: inject _governance in header
         const governanceHeader = Buffer.from(JSON.stringify(governance)).toString('base64')

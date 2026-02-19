@@ -34,8 +34,8 @@ jobs:
   # Lint, Format, Type Check (Parallel)
   # ====================================================================
 
-  lint-format-typecheck:
-    name: Lint, Format, Type Check
+  lint:
+    name: Lint (ESLint)
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -62,8 +62,58 @@ jobs:
       - name: Run ESLint
         run: pnpm lint
 
+  format-check:
+    name: Format (Prettier)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Check formatting
         run: pnpm format:check
+
+  typecheck:
+    name: Type Check (tsc)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Type check (tsc)
         run: pnpm typecheck
@@ -75,7 +125,7 @@ jobs:
   test:
     name: Unit Tests (Coverage 90%+)
     runs-on: ubuntu-latest
-    needs: lint-format-typecheck
+    needs: [lint, format-check, typecheck]
     strategy:
       matrix:
         node-version: ['22.x']
@@ -115,7 +165,7 @@ jobs:
   contracts:
     name: Contracts (Build & Test)
     runs-on: ubuntu-latest
-    needs: lint-format-typecheck
+    needs: [lint, format-check, typecheck]
     strategy:
       matrix:
         node-version: ['22.x']
@@ -138,16 +188,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Compile contracts (Hardhat)
-        run: pnpm contracts:build
-
-      - name: Cache Hardhat compilation
+      - name: Restore Hardhat compilation cache
         uses: actions/cache@v3
         with:
           path: ./artifacts
           key: hardhat-${{ github.sha }}
           restore-keys: |
             hardhat-
+
+      - name: Compile contracts (Hardhat)
+        run: pnpm contracts:build
+
+      - name: Save Hardhat compilation cache
+        uses: actions/cache@v3
+        with:
+          path: ./artifacts
+          key: hardhat-${{ github.sha }}
 
       - name: Run contract tests
         run: pnpm contracts:test
@@ -312,7 +368,7 @@ jobs:
   summary:
     name: Workflow Summary
     runs-on: ubuntu-latest
-    needs: [lint-format-typecheck, test, contracts, build]
+    needs: [lint, format-check, typecheck, test, contracts, build]
     if: always()
 
     steps:
@@ -320,7 +376,9 @@ jobs:
         run: |
           echo "Workflow Summary"
           echo "================"
-          echo "Lint/Format/Typecheck: ${{ needs.lint-format-typecheck.result }}"
+          echo "Lint:                  ${{ needs.lint.result }}"
+          echo "Format Check:          ${{ needs.format-check.result }}"
+          echo "Type Check:            ${{ needs.typecheck.result }}"
           echo "Unit Tests:            ${{ needs.test.result }}"
           echo "Contracts:             ${{ needs.contracts.result }}"
           echo "Build:                 ${{ needs.build.result }}"

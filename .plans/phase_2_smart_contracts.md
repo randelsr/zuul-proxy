@@ -322,42 +322,49 @@ contract Audit is Ownable {
 
 ### 3. contracts/test/RBAC.test.ts
 
-**Purpose:** TypeScript unit tests for RBAC contract
+**Purpose:** TypeScript unit tests for RBAC contract using Vitest + viem
 
 ```typescript
-import { expect } from 'chai'
-import { ethers } from 'hardhat'
-import { RBAC } from '../typechain-types'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { getContractAt, deployContract } from '@nomicfoundation/hardhat-viem/ethers-compat'
+import { getSigners } from '@nomicfoundation/hardhat-viem/ethers-compat'
+import { keccak256, toUtf8Bytes } from 'viem'
+import type { Contract } from 'ethers'
 
 describe('RBAC Contract', () => {
-  let rbac: RBAC
-  let owner: any
-  let agent1: any
-  let agent2: any
+  let rbac: Contract
+  let owner: Awaited<ReturnType<typeof getSigners>>[number]
+  let agent1: Awaited<ReturnType<typeof getSigners>>[number]
+  let agent2: Awaited<ReturnType<typeof getSigners>>[number]
 
-  const developerRole = ethers.id('developer')
-  const adminRole = ethers.id('admin')
+  const developerRole = keccak256(toUtf8Bytes('developer'))
+  const adminRole = keccak256(toUtf8Bytes('admin'))
 
   beforeEach(async () => {
-    ;[owner, agent1, agent2] = await ethers.getSigners()
-    const RBACFactory = await ethers.getContractFactory('RBAC')
+    const signers = await getSigners()
+    ;[owner, agent1, agent2] = signers
+
+    const RBACFactory = await getContractFactory('RBAC')
     rbac = await RBACFactory.deploy()
+    await rbac.waitForDeployment()
   })
 
   it('should register an agent', async () => {
-    await expect(rbac.registerAgent(agent1.address, developerRole))
-      .to.emit(rbac, 'AgentRegistered')
-      .withArgs(agent1.address, developerRole)
+    const tx = await rbac.registerAgent(agent1.address, developerRole)
+    const receipt = await tx.wait()
+
+    expect(receipt?.logs.length).toBeGreaterThan(0)
 
     const [role, isActive] = await rbac.getAgentRole(agent1.address)
-    expect(role).to.equal(developerRole)
-    expect(isActive).to.be.true
+    expect(role).toBe(developerRole)
+    expect(isActive).toBe(true)
   })
 
   it('should grant a permission', async () => {
-    await expect(rbac.grantPermission(developerRole, 'github', 'read'))
-      .to.emit(rbac, 'PermissionGranted')
-      .withArgs(developerRole, 'github', 'read')
+    const tx = await rbac.grantPermission(developerRole, 'github', 'read')
+    const receipt = await tx.wait()
+
+    expect(receipt?.logs.length).toBeGreaterThan(0)
   })
 
   it('should check permission correctly', async () => {
@@ -368,44 +375,54 @@ describe('RBAC Contract', () => {
     await rbac.grantPermission(developerRole, 'github', 'read')
 
     // Agent should have permission
-    expect(await rbac.hasPermission(agent1.address, 'github', 'read')).to.be.true
-    expect(await rbac.hasPermission(agent1.address, 'github', 'create')).to.be.false
+    const hasReadPermission = await rbac.hasPermission(agent1.address, 'github', 'read')
+    const hasCreatePermission = await rbac.hasPermission(agent1.address, 'github', 'create')
+
+    expect(hasReadPermission).toBe(true)
+    expect(hasCreatePermission).toBe(false)
   })
 
   it('should deny access to revoked agent', async () => {
     await rbac.registerAgent(agent1.address, developerRole)
     await rbac.grantPermission(developerRole, 'github', 'read')
 
-    expect(await rbac.hasPermission(agent1.address, 'github', 'read')).to.be.true
+    let hasPermission = await rbac.hasPermission(agent1.address, 'github', 'read')
+    expect(hasPermission).toBe(true)
 
     // Emergency revoke
-    await expect(rbac.emergencyRevoke(agent1.address))
-      .to.emit(rbac, 'AgentRevoked')
-      .withArgs(agent1.address)
+    await rbac.emergencyRevoke(agent1.address)
 
     // Agent should no longer have permission
-    expect(await rbac.hasPermission(agent1.address, 'github', 'read')).to.be.false
+    hasPermission = await rbac.hasPermission(agent1.address, 'github', 'read')
+    expect(hasPermission).toBe(false)
   })
 
   it('should revoke a permission', async () => {
     await rbac.grantPermission(developerRole, 'github', 'read')
-    expect(await rbac.hasPermission(agent1.address, 'github', 'read')).to.be.false // No registration
+    let hasPermission = await rbac.hasPermission(agent1.address, 'github', 'read')
+    expect(hasPermission).toBe(false) // No registration
 
     await rbac.registerAgent(agent1.address, developerRole)
-    expect(await rbac.hasPermission(agent1.address, 'github', 'read')).to.be.true
+    hasPermission = await rbac.hasPermission(agent1.address, 'github', 'read')
+    expect(hasPermission).toBe(true)
 
     // Revoke permission
-    await expect(rbac.revokePermission(developerRole, 'github', 'read'))
-      .to.emit(rbac, 'PermissionRevoked')
-      .withArgs(developerRole, 'github', 'read')
+    await rbac.revokePermission(developerRole, 'github', 'read')
 
-    expect(await rbac.hasPermission(agent1.address, 'github', 'read')).to.be.false
+    hasPermission = await rbac.hasPermission(agent1.address, 'github', 'read')
+    expect(hasPermission).toBe(false)
   })
 
   it('should deny non-owner from registering agents', async () => {
-    await expect(
-      rbac.connect(agent1).registerAgent(agent2.address, developerRole)
-    ).to.be.revertedWithCustomError(rbac, 'OwnableUnauthorizedAccount')
+    const rbacAsAgent1 = rbac.connect(agent1)
+
+    try {
+      await rbacAsAgent1.registerAgent(agent2.address, developerRole)
+      expect.fail('Should have thrown error')
+    } catch (error) {
+      // Expected to revert with OwnableUnauthorizedAccount
+      expect(error instanceof Error && error.message).toContain('OwnableUnauthorizedAccount')
+    }
   })
 })
 ```

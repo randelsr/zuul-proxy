@@ -329,6 +329,7 @@ export class AuditQueue {
   private queue: AuditEntry[] = []
   private flushInterval: NodeJS.Timer | null = null
   private isShuttingDown = false
+  private isFlushing = false // Guard: prevent concurrent flush executions
   private failedEntries: Map<string, number> = new Map() // auditId → retryCount
 
   constructor(
@@ -357,19 +358,26 @@ export class AuditQueue {
   /**
    * Flush queue to blockchain with retry logic
    * Exponential backoff: 3 attempts, 100ms base, full jitter
+   * Guard: skip flush if one is already in progress (prevents duplicate processing)
    */
   async flush(): Promise<void> {
-    if (this.queue.length === 0) {
+    if (this.isFlushing || this.queue.length === 0) {
       return
     }
 
-    const entriesToProcess = [...this.queue]
-    this.queue = []
+    this.isFlushing = true
 
-    logger.debug({ count: entriesToProcess.length }, 'Flushing audit queue')
+    try {
+      const entriesToProcess = [...this.queue]
+      this.queue = []
 
-    for (const entry of entriesToProcess) {
-      await this.writeWithRetry(entry)
+      logger.debug({ count: entriesToProcess.length }, 'Flushing audit queue')
+
+      for (const entry of entriesToProcess) {
+        await this.writeWithRetry(entry)
+      }
+    } finally {
+      this.isFlushing = false
     }
   }
 
@@ -432,6 +440,32 @@ export class AuditQueue {
   }
 
   /**
+   * Drain queue: flush all remaining entries (called explicitly during graceful shutdown)
+   * Must be called from SIGTERM handler before process.exit()
+   */
+  async drain(): Promise<void> {
+    logger.info('Draining audit queue...')
+    let attempts = 0
+    const maxAttempts = 10
+
+    while (this.queue.length > 0 && attempts < maxAttempts) {
+      await this.flush()
+      attempts++
+      // Brief delay between flushes to allow retry backoff
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+
+    if (this.queue.length > 0) {
+      logger.warn(
+        { pending: this.queue.length },
+        'Audit queue drain timeout; some entries may not have been written'
+      )
+    } else {
+      logger.info('Audit queue drained successfully')
+    }
+  }
+
+  /**
    * Handle graceful shutdown: drain queue before exit
    */
   private async handleShutdown(): Promise<void> {
@@ -446,10 +480,8 @@ export class AuditQueue {
       clearInterval(this.flushInterval)
     }
 
-    // Flush remaining entries
-    while (this.queue.length > 0) {
-      await this.flush()
-    }
+    // Call drain to ensure all entries are flushed
+    await this.drain()
 
     logger.info('Audit queue: shutdown complete')
   }

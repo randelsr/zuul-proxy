@@ -178,7 +178,6 @@ export class ToolRegistry {
 ### src/proxy/executor.ts
 
 ```typescript
-import { fetch as nodeFetch } from 'node-fetch'
 import type { HttpMethod, ApiKeyHandle } from '../types.js'
 import { ServiceError, ERRORS } from '../errors.js'
 import type { Result } from '../types.js'
@@ -262,11 +261,15 @@ export class ProxyExecutor {
       }
 
       // Step 2: Prepare request
-      const fetchOptions: any = {
+      const timeoutMs = req.method === 'GET' || req.method === 'HEAD' ? this.readTimeoutMs : this.writeTimeoutMs
+      const controller = new AbortController()
+      const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs)
+
+      const fetchOptions: RequestInit = {
         method: req.method,
         headers,
         redirect: 'manual', // Do NOT follow redirects
-        timeout: req.method === 'GET' || req.method === 'HEAD' ? this.readTimeoutMs : this.writeTimeoutMs,
+        signal: controller.signal,
       }
 
       if (req.body) {
@@ -280,7 +283,12 @@ export class ProxyExecutor {
       }
 
       // Step 3: Make upstream call
-      const response = await nodeFetch(req.targetUrl, fetchOptions)
+      let response: Response
+      try {
+        response = await fetch(req.targetUrl, fetchOptions)
+      } finally {
+        clearTimeout(timeoutHandle)
+      }
 
       const latencyMs = Date.now() - startTime
 
@@ -305,7 +313,9 @@ export class ProxyExecutor {
         body = await response.text()
         parsedContentType = 'text'
       } else {
-        body = await response.buffer()
+        // Binary: use arrayBuffer() on native Response, convert to Buffer
+        const arrayBuffer = await response.arrayBuffer()
+        body = Buffer.from(arrayBuffer)
         parsedContentType = 'binary'
       }
 
@@ -332,15 +342,12 @@ export class ProxyExecutor {
       const latencyMs = Date.now() - startTime
 
       // Distinguish timeout from other errors
-      const errorMessage = String(error)
-      const isTimeout =
-        errorMessage.includes('timeout') ||
-        errorMessage.includes('ETIMEDOUT') ||
-        errorMessage.includes('ESOCKETTIMEDOUT')
+      // AbortSignal.abort() throws an AbortError
+      const isTimeout = error instanceof Error && error.name === 'AbortError'
 
       if (isTimeout) {
         logger.warn(
-          { targetUrl: req.targetUrl, latencyMs, error: errorMessage },
+          { targetUrl: req.targetUrl, latencyMs },
           'Proxy request timeout'
         )
 
@@ -351,7 +358,7 @@ export class ProxyExecutor {
             ERRORS.UPSTREAM_TIMEOUT.code,
             ERRORS.UPSTREAM_TIMEOUT.httpStatus,
             ERRORS.UPSTREAM_TIMEOUT.errorType,
-            { timeout_ms: this.readTimeoutMs }
+            { timeout_ms: latencyMs }
           ),
         }
       }
