@@ -5,23 +5,23 @@ import { KeyVault } from '../../src/custody/key-vault.js';
 import { AuditQueue } from '../../src/audit/store.js';
 import { AuditContractWriter } from '../../src/audit/contract.js';
 import { ProxyExecutor } from '../../src/proxy/executor.js';
-import {
-  privateKeyToAccount,
-} from 'viem/accounts';
+import { privateKeyToAccount } from 'viem/accounts';
 import { buildCanonicalPayload } from '../../src/auth/signature.js';
 import type { AppConfig } from '../../src/config/types.js';
 import type { Nonce, Timestamp, AgentAddress } from '../../src/types.js';
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AppType = any;
+
 describe('E2E Integration Tests', () => {
-  let app: any; // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let app: AppType;
   let chainDriver: LocalChainDriver;
   let custody: KeyVault;
   let auditQueue: AuditQueue;
   let executor: ProxyExecutor;
 
   // Test agent: use fixed private key for deterministic signatures
-  const testPrivateKey =
-    '0x1234567890123456789012345678901234567890123456789012345678901234';
+  const testPrivateKey = '0x1234567890123456789012345678901234567890123456789012345678901234';
   const testAccount = privateKeyToAccount(testPrivateKey);
   const agentAddress = testAccount.address as AgentAddress;
 
@@ -122,18 +122,15 @@ describe('E2E Integration Tests', () => {
     const signature = await testAccount.signMessage({ message: payload });
 
     const response = await app.request(
-      new Request(
-        `http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`,
-        {
-          method: 'GET',
-          headers: {
-            'X-Agent-Address': agentAddress,
-            'X-Signature': signature,
-            'X-Nonce': nonce,
-            'X-Timestamp': String(timestamp),
-          },
-        }
-      )
+      new Request(`http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`, {
+        method: 'GET',
+        headers: {
+          'X-Agent-Address': agentAddress,
+          'X-Signature': signature,
+          'X-Nonce': nonce,
+          'X-Timestamp': String(timestamp),
+        },
+      })
     );
 
     // Hono test framework - skip status check, verify response structure
@@ -153,23 +150,20 @@ describe('E2E Integration Tests', () => {
     const payload = buildCanonicalPayload('POST', targetUrl, nonce, timestamp);
     const signature = await testAccount.signMessage({ message: payload });
 
-    const response = await app.request(
-      new Request(
-        `http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`,
-        {
-          method: 'POST',
-          headers: {
-            'X-Agent-Address': agentAddress,
-            'X-Signature': signature,
-            'X-Nonce': nonce,
-            'X-Timestamp': String(timestamp),
-          },
-        }
-      )
+    await app.request(
+      new Request(`http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`, {
+        method: 'POST',
+        headers: {
+          'X-Agent-Address': agentAddress,
+          'X-Signature': signature,
+          'X-Nonce': nonce,
+          'X-Timestamp': String(timestamp),
+        },
+      })
     );
 
     // Expected: 403 -32011 or 503 -32022 (fail closed)
-    // Hono test framework - skip status check
+    // Hono test framework - skip status check (limitation documented in Phase 12)
   });
 
   // ========================================================================
@@ -195,18 +189,15 @@ describe('E2E Integration Tests', () => {
 
       // Make actual request through app
       const response = await app.request(
-        new Request(
-          `http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`,
-          {
-            method: 'GET',
-            headers: {
-              'X-Agent-Address': agentAddress,
-              'X-Signature': signature,
-              'X-Nonce': nonce,
-              'X-Timestamp': String(timestamp),
-            },
-          }
-        )
+        new Request(`http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`, {
+          method: 'GET',
+          headers: {
+            'X-Agent-Address': agentAddress,
+            'X-Signature': signature,
+            'X-Nonce': nonce,
+            'X-Timestamp': String(timestamp),
+          },
+        })
       );
 
       // Hono test framework - skip status check
@@ -254,18 +245,15 @@ describe('E2E Integration Tests', () => {
     const signature = await testAccount.signMessage({ message: payload });
 
     const response = await app.request(
-      new Request(
-        `http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`,
-        {
-          method: 'GET',
-          headers: {
-            'X-Agent-Address': agentAddress,
-            'X-Signature': signature,
-            'X-Nonce': nonce,
-            'X-Timestamp': String(timestamp),
-          },
-        }
-      )
+      new Request(`http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`, {
+        method: 'GET',
+        headers: {
+          'X-Agent-Address': agentAddress,
+          'X-Signature': signature,
+          'X-Nonce': nonce,
+          'X-Timestamp': String(timestamp),
+        },
+      })
     );
 
     // Hono test framework - skip status check

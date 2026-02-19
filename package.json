@@ -11,8 +11,9 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
-    "format": "prettier --write src tests contracts",
-    "format:check": "prettier --check src tests contracts",
+    "lint:demo": "eslint demo --no-warn-ignored",
+    "format": "prettier --write src tests contracts demo",
+    "format:check": "prettier --check src tests contracts demo",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -21,7 +22,7 @@
     "contracts:dev": "hardhat node",
     "contracts:deploy:local": "hardhat ignition deploy ignition/modules/Zuul.ts --network localhost",
     "contracts:deploy:hedera": "hardhat ignition deploy ignition/modules/Zuul.ts --network hederaTestnet --parameters ignition/parameters/hedera.json",
-    "demo": "tsx src/demo/agent.ts"
+    "demo": "tsx demo/scenario.ts"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",

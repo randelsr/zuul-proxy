@@ -18,6 +18,13 @@
       "rules": {
         "@typescript-eslint/explicit-function-return-types": "off"
       }
+    },
+    {
+      "files": ["demo/**/*.ts"],
+      "rules": {
+        "no-console": "off",
+        "@typescript-eslint/explicit-function-return-types": "off"
+      }
     }
   ]
 }
