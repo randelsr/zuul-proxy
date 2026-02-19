@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import type { AppConfig } from '../config/types.js';
 import { rpcHandler } from './handlers/rpc.js';
 import { forwardHandler } from './handlers/forward.js';
@@ -44,8 +44,10 @@ export function createServer(
 
   // 1. Request ID generation (UUID v4)
   app.use('*', (context, next) => {
-    context.set('requestId', uuidv4());
-    logger.debug({ requestId: context.get('requestId') }, 'Request started');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (context as any).set('requestId', randomUUID());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    logger.debug({ requestId: (context as any).get('requestId') }, 'Request started');
     return next();
   });
 
@@ -73,7 +75,8 @@ export function createServer(
   // ========================================================================
 
   app.onError((error, context) => {
-    const requestId = context.get('requestId') as string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const requestId = (context as any).get('requestId') as string;
     logger.error(
       {
         requestId,
@@ -137,10 +140,7 @@ export async function startServer(
   const { serve } = await import('@hono/node-server');
   const app = createServer(config, chainDriver, custody, auditQueue, executor);
 
-  logger.info(
-    { port: config.server.port, host: config.server.host },
-    'Starting HTTP server'
-  );
+  logger.info({ port: config.server.port, host: config.server.host }, 'Starting HTTP server');
 
   serve(
     {

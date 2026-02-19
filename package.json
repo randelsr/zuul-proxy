@@ -33,11 +33,13 @@
     "zod": "3.22.0"
   },
   "devDependencies": {
+    "@hono/node-server": "^1.19.9",
     "@nomicfoundation/hardhat-ignition": "0.15.0",
     "@nomicfoundation/hardhat-toolbox": "4.0.0",
     "@nomicfoundation/hardhat-viem": "2.0.0",
     "@typechain/hardhat": "9.1.0",
     "@types/node": "22.0.0",
+    "@types/uuid": "^11.0.0",
     "@typescript-eslint/eslint-plugin": "7.0.0",
     "@typescript-eslint/parser": "7.0.0",
     "@vitest/coverage-v8": "1.6.0",
