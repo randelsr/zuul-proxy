@@ -263,7 +263,7 @@ yarn-debug.log*
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
-npx lint-staged
+pnpm exec lint-staged
 ```
 
 **Rationale:**
@@ -456,6 +456,7 @@ zuul-proxy/
 │   ├── config/
 │   ├── api/
 │   ├── types/
+│   ├── errors/
 │   └── integration/
 ├── contracts/
 │   ├── RBAC.sol
@@ -485,14 +486,67 @@ zuul-proxy/
 
 ---
 
-### 12. Initialize Git Hooks
+### 12. CLAUDE.md
+
+**File:** `/Users/nullfox/repos/zuul-proxy/CLAUDE.md`
+
+```markdown
+# Claude Code Context
+
+## Project Overview
+
+**Zuul Proxy** is an on-chain governance proxy for agent tool access. Agents route HTTP service calls through Zuul, which enforces RBAC permissions (from smart contracts) and audits all requests to an immutable blockchain log.
+
+## Architecture
+
+- **MVP Scope:** HTTP API with JSON-RPC 2.0 semantics; governance is opt-in (not transparent)
+- **Blockchain:** Hedera testnet (chainId 295) via viem; extensible to Base, Arbitrum, Optimism
+- **Audit:** Dual signatures (agent + proxy), encrypted payloads, blockchain writes
+- **Testing:** Vitest for unit tests, local Hardhat for contract integration
+
+## Key Rules
+
+- See `.claude/rules/` for governance, API, CI/CD, exception handling, dependencies, testing, logging, code style, documentation, and TypeScript standards
+- See `.plans/mvp-prd.md` for full product requirements
+- All phases (0-15) are documented in `.plans/phase_N_*.md`
+
+## Critical Files
+
+- `src/types.ts` — Domain types (Agent, Role, Permission, AuditEntry, etc.)
+- `src/api/server.ts` — Hono HTTP server with middleware pipeline
+- `src/audit/store.ts` — Durable audit queue with blockchain writes
+- `src/rbac/cache.ts` — Permission cache with TTL
+- `contracts/RBAC.sol`, `contracts/Audit.sol` — Solidity contracts
+
+## Commands
+
+```bash
+pnpm install              # Install dependencies
+pnpm typecheck           # TypeScript strict mode check
+pnpm lint                # ESLint
+pnpm test                # Unit tests with 90%+ coverage gate
+pnpm contracts:build     # Compile Solidity contracts
+pnpm build               # TypeScript compilation
+pnpm dev                 # Start server in watch mode
+```
+
+## Next Steps
+
+1. Bootstrap project: Phase 0 (tooling, config, directory structure)
+2. Implement core modules: Phases 1-11 (types, auth, RBAC, audit, API)
+3. Add tests and docs: Phases 12-15 (E2E, demo, documentation)
+```
+
+---
+
+### 13. Initialize Git Hooks
 
 Commands to run after cloning:
 
 ```bash
 pnpm install
-npx husky install
-npx husky add .husky/pre-commit "npx lint-staged"
+pnpm exec husky install
+pnpm exec husky add .husky/pre-commit "pnpm exec lint-staged"
 ```
 
 ---
@@ -525,14 +579,14 @@ pnpm format:check
 
 # Create directories
 mkdir -p src/{api/{handlers,middleware},auth,rbac,proxy,audit,custody,chain,config,contracts/generated}
-mkdir -p tests/{auth,rbac,proxy,audit,custody,chain,config,api,types,integration}
+mkdir -p tests/{auth,rbac,proxy,audit,custody,chain,config,api,types,errors,integration}
 mkdir -p contracts/test
 mkdir -p ignition/{modules,parameters}
 mkdir -p demo docs .github/workflows
 
 # Install git hooks
-npx husky install
-npx husky add .husky/pre-commit "npx lint-staged"
+pnpm exec husky install
+pnpm exec husky add .husky/pre-commit "pnpm exec lint-staged"
 
 # Commit
 git add .

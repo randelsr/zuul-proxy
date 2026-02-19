@@ -77,7 +77,7 @@ export function signatureMiddleware(
           _governance: {
             request_id: requestId,
             timestamp: Math.floor(Date.now() / 1000),
-            error_type: 'auth/missing_headers',
+            error_type: 'auth/missing_signature',
           },
         })
       }

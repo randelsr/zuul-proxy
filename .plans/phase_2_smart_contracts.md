@@ -601,6 +601,21 @@ git commit -m "Phase 2: Smart contracts — RBAC.sol, Audit.sol, Hardhat Ignitio
 
 ---
 
+## Notes
+
+### OpenZeppelin Version
+
+- If using OpenZeppelin Contracts v5.x, the `Ownable` constructor requires an argument:
+  ```solidity
+  contract RBAC is Ownable {
+    constructor() Ownable(msg.sender) {}
+  }
+  ```
+- If using v4.x, no constructor argument needed (default is `msg.sender`)
+- Specify version in `hardhat.config.ts` or verify installed version
+
+---
+
 ## What's NOT in Phase 2
 
 - Deployment to any blockchain (defer to Phase 7 or Phase 14)

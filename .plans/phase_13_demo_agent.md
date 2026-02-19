@@ -362,7 +362,7 @@ Generic TypeScript agent demonstrating end-to-end proxy usage.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22+
 - pnpm
 - Zuul proxy running locally (http://localhost:8080)
 - Hardhat local node running (http://localhost:8545)

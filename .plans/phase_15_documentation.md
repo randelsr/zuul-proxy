@@ -124,7 +124,7 @@ Agent (Client)
 Zuul Proxy
     ├─ Signature Verification (auth)
     ├─ RBAC Permission Check (authz)
-    ├─ Key Injection (auth)
+    ├─ Key Injection (custody)
     ├─ HTTP Forwarding
     └─ Audit Logging (async)
     ↓
@@ -801,9 +801,9 @@ Unit test coverage includes:
 
 ### Chain Outage
 
-1. All permission checks return 503 SERVICE_UNAVAILABLE
+1. All permission checks return 503 SERVICE_UNAVAILABLE (fail-closed)
 2. Agents know to retry later
-3. Requests are NOT denied; temporary blockage only
+3. Requests are blocked with 503 (temporary blockage, not permanent 403 denial)
 4. Audit queue continues to accumulate (retry with backoff)
 
 ### API Key Compromise

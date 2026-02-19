@@ -124,12 +124,12 @@ const EndpointSchema = z.object({
   path: z.string().min(1),
   methods: z.array(z.enum(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'])),
   description: z.string().min(1),
-}) as z.ZodType<EndpointConfig>
+})
 
 const PermissionConfigSchema = z.object({
   tool: z.string().min(1),
   actions: z.array(z.enum(['read', 'create', 'update', 'delete'])),
-}) as z.ZodType<PermissionConfig>
+})
 
 const ToolConfigSchema = z.object({
   key: z.string().min(1, 'Tool key required'),
@@ -145,30 +145,30 @@ const ToolConfigSchema = z.object({
       })
     ),
   endpoints: z.array(EndpointSchema).optional().default([]),
-}) as z.ZodType<ToolConfig>
+})
 
 const RoleConfigSchema = z.object({
   id: z.string().min(1, 'Role ID required'),
   name: z.string().min(1),
   permissions: z.array(PermissionConfigSchema),
-}) as z.ZodType<RoleConfig>
+})
 
 const ChainConfigSchema = z.object({
   name: z.enum(['hedera', 'base', 'arbitrum', 'optimism', 'local']),
   chainId: z.number().int().positive(),
   rpcUrl: z.string().url('Invalid RPC URL'),
-}) as z.ZodType<ChainConfig>
+})
 
 const CacheConfigSchema = z.object({
   ttlSeconds: z.number().int().positive().default(300),
-}) as z.ZodType<CacheConfig>
+})
 
 const ServerConfigSchema = z.object({
   port: z.number().int().min(1024).max(65535).default(8080),
   host: z.string().default('0.0.0.0'),
   readTimeoutMs: z.number().int().positive().default(30000),
   writeTimeoutMs: z.number().int().positive().default(60000),
-}) as z.ZodType<ServerConfig>
+})
 
 export const AppConfigSchema = z.object({
   tools: z.array(ToolConfigSchema).min(1, 'At least one tool required'),
@@ -181,7 +181,8 @@ export const AppConfigSchema = z.object({
     readTimeoutMs: 30000,
     writeTimeoutMs: 60000,
   }),
-}) as z.ZodType<AppConfig>
+})
+
 
 /**
  * Validate config against schema

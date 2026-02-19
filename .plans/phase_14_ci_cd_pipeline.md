@@ -294,7 +294,7 @@ jobs:
   deploy:
     name: Deploy to Hedera Testnet
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [build, contracts]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: hedera-testnet
