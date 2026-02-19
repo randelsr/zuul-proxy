@@ -9,7 +9,6 @@ import { EncryptionService } from '../../../src/audit/encryption.js';
 import { inferAction } from '../../../src/proxy/action-mapper.js';
 import type { AppConfig } from '../../../src/config/types.js';
 import type { AuditQueue } from '../../../src/audit/store.js';
-import type { Context } from 'hono';
 
 describe('Middleware: Pipeline Chain', () => {
   let nonceValidator: NonceValidator;
@@ -147,6 +146,7 @@ describe('Middleware: Pipeline Chain', () => {
 
   it('should validate timestamp freshness', () => {
     // Test timestamp validation
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const freshTimestamp = Math.floor(Date.now() / 1000) as any;
     const result = timestampValidator.validate(freshTimestamp);
     expect(result.ok).toBe(true);
@@ -210,7 +210,6 @@ describe('Middleware: Pipeline Chain', () => {
       json: vi.fn().mockReturnValue(undefined),
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const next = vi.fn();
 
     // Call RBAC middleware with missing address
