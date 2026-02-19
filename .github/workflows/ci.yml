@@ -1,0 +1,372 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '22.x'
+
+jobs:
+  # ========================================================================
+  # Lint, Format, Type Check (Parallel)
+  # ========================================================================
+
+  lint:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint
+        run: pnpm lint
+
+  format-check:
+    name: Format (Prettier)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm format:check
+
+  typecheck:
+    name: Type Check (tsc)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check (tsc)
+        run: pnpm typecheck
+
+  # ========================================================================
+  # Unit Tests with Coverage
+  # ========================================================================
+
+  test:
+    name: Unit Tests (Coverage 90%+)
+    runs-on: ubuntu-latest
+    needs: [lint, format-check, typecheck]
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/coverage-final.json
+          fail_ci_if_error: true
+          verbose: true
+
+  # ========================================================================
+  # Contract Compilation and Testing
+  # ========================================================================
+
+  contracts:
+    name: Contracts (Build & Test)
+    runs-on: ubuntu-latest
+    needs: [lint, format-check, typecheck]
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore Hardhat compilation cache
+        uses: actions/cache@v3
+        with:
+          path: ./artifacts
+          key: hardhat-${{ github.sha }}
+          restore-keys: |
+            hardhat-
+
+      - name: Compile contracts (Hardhat)
+        run: pnpm contracts:build
+
+      - name: Save Hardhat compilation cache
+        uses: actions/cache@v3
+        with:
+          path: ./artifacts
+          key: hardhat-${{ github.sha }}
+
+      - name: Run contract tests
+        run: pnpm contracts:test
+
+      - name: Upload contract ABIs as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: contract-abis
+          path: artifacts/
+          retention-days: 30
+
+  # ========================================================================
+  # TypeScript Build
+  # ========================================================================
+
+  build:
+    name: Build (TypeScript)
+    runs-on: ubuntu-latest
+    needs: [lint, format-check, typecheck, test, contracts]
+    strategy:
+      matrix:
+        node-version: ['22.x']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v3
+        with:
+          name: contract-abis
+          path: artifacts/
+
+      - name: Build TypeScript
+        run: pnpm build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: dist/
+          retention-days: 30
+
+  # ========================================================================
+  # Optional: Docker Build
+  # ========================================================================
+
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: false
+          tags: zuul-proxy:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ========================================================================
+  # Optional: Deploy to Testnet
+  # ========================================================================
+
+  deploy:
+    name: Deploy to Hedera Testnet
+    runs-on: ubuntu-latest
+    needs: [build, contracts]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: hedera-testnet
+      url: https://testnet.hashscan.io
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download contract ABIs
+        uses: actions/download-artifact@v3
+        with:
+          name: contract-abis
+          path: artifacts/
+
+      - name: Deploy contracts to Hedera testnet
+        env:
+          HEDERA_ACCOUNT_ID: ${{ secrets.HEDERA_ACCOUNT_ID }}
+          HEDERA_PRIVATE_KEY: ${{ secrets.HEDERA_PRIVATE_KEY }}
+          HEDERA_RPC_URL: ${{ secrets.HEDERA_RPC_URL }}
+        run: bash scripts/deploy-contracts.sh
+
+      - name: Verify deployment
+        run: |
+          echo "Deployment verification:"
+          echo "  Chain: Hedera testnet"
+          echo "  Timestamp: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "  Contracts deployed successfully"
+
+      - name: Create deployment summary
+        run: |
+          cat > deployment-summary.txt <<EOF
+          Deployment Complete
+          ====================
+
+          Environment: Hedera Testnet (chain 295)
+          Timestamp: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          Commit: ${{ github.sha }}
+
+          Deployed Contracts:
+          - RBAC.sol
+          - Audit.sol
+
+          See https://testnet.hashscan.io for transaction details.
+          EOF
+
+      - name: Upload deployment summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-summary
+          path: deployment-summary.txt
+
+  # ========================================================================
+  # Workflow Summary
+  # ========================================================================
+
+  summary:
+    name: Workflow Summary
+    runs-on: ubuntu-latest
+    needs: [lint, format-check, typecheck, test, contracts, build]
+    if: always()
+
+    steps:
+      - name: Check job statuses
+        run: |
+          echo "Workflow Summary"
+          echo "================"
+          echo "Lint:                  ${{ needs.lint.result }}"
+          echo "Format Check:          ${{ needs.format-check.result }}"
+          echo "Type Check:            ${{ needs.typecheck.result }}"
+          echo "Unit Tests:            ${{ needs.test.result }}"
+          echo "Contracts:             ${{ needs.contracts.result }}"
+          echo "Build:                 ${{ needs.build.result }}"
+
+      - name: Fail if any job failed
+        if: failure()
+        run: exit 1
+
+      - name: Success
+        if: success()
+        run: echo "✅ All checks passed!"

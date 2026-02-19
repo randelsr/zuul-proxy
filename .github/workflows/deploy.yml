@@ -1,0 +1,66 @@
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'hedera-testnet'
+        type: choice
+        options:
+          - hedera-testnet
+          - base-testnet
+          - arbitrum-testnet
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to ${{ inputs.environment }}
+        env:
+          DEPLOYMENT_ENV: ${{ inputs.environment }}
+          HEDERA_ACCOUNT_ID: ${{ secrets.HEDERA_ACCOUNT_ID }}
+          HEDERA_PRIVATE_KEY: ${{ secrets.HEDERA_PRIVATE_KEY }}
+          HEDERA_RPC_URL: ${{ secrets.HEDERA_RPC_URL }}
+        run: |
+          case $DEPLOYMENT_ENV in
+            hedera-testnet)
+              bash scripts/deploy-contracts.sh
+              ;;
+            base-testnet)
+              echo "Base testnet deployment (future)"
+              ;;
+            arbitrum-testnet)
+              echo "Arbitrum testnet deployment (future)"
+              ;;
+          esac
+
+      - name: Notify Slack
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Deployment to ${{ inputs.environment }} ${{ job.status }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
