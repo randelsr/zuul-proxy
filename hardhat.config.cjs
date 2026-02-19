@@ -1,11 +1,16 @@
-import { HardhatUserConfig } from 'hardhat/config';
-import '@nomicfoundation/hardhat-toolbox';
-import '@nomicfoundation/hardhat-ignition';
-import '@nomicfoundation/hardhat-viem';
-import '@typechain/hardhat';
-import 'solidity-coverage';
+require('@nomicfoundation/hardhat-toolbox');
+require('@nomicfoundation/hardhat-ignition');
+require('@nomicfoundation/hardhat-viem');
+require('@typechain/hardhat');
+require('solidity-coverage');
 
-const config: HardhatUserConfig = {
+// Register ts-node for TypeScript support
+require('ts-node').register({
+  project: require('path').resolve(__dirname, './tsconfig.hardhat.json'),
+  transpileOnly: true,
+});
+
+const config = {
   solidity: {
     version: '0.8.20',
     settings: {
@@ -40,10 +45,13 @@ const config: HardhatUserConfig = {
       chainId: 11155420,
     },
   },
+  mocha: {
+    timeout: 40000,
+  },
   typechain: {
     outDir: 'src/contracts/generated',
-    target: 'viem-v2',
+    target: 'ethers-v6',
   },
 };
 
-export default config;
+module.exports = config;
