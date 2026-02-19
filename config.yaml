@@ -1,0 +1,73 @@
+# Zuul Proxy Configuration
+# This file defines tools, roles, permissions, and blockchain settings
+
+tools:
+  - key: github
+    description: GitHub REST API
+    baseUrl: https://api.github.com
+    keyRef: GITHUB_API_KEY
+    endpoints:
+      - path: /repos/{owner}/{repo}/issues
+        methods: [GET, POST]
+        description: Manage repository issues
+      - path: /repos/{owner}/{repo}/issues/{issue_number}
+        methods: [GET, PATCH, DELETE]
+        description: Manage single issue
+
+  - key: slack
+    description: Slack API
+    baseUrl: https://slack.com/api
+    keyRef: SLACK_BOT_TOKEN
+    endpoints:
+      - path: /conversations.list
+        methods: [GET]
+        description: List conversations
+      - path: /chat.postMessage
+        methods: [POST]
+        description: Send message
+
+  - key: openai
+    description: OpenAI API
+    baseUrl: https://api.openai.com/v1
+    keyRef: OPENAI_API_KEY
+    endpoints:
+      - path: /chat/completions
+        methods: [POST]
+        description: Create completion
+
+# Roles and permissions
+roles:
+  - id: developer
+    name: Developer
+    permissions:
+      - tool: github
+        actions: [read, create, update]
+      - tool: slack
+        actions: [read]
+
+  - id: admin
+    name: Administrator
+    permissions:
+      - tool: github
+        actions: [read, create, update, delete]
+      - tool: slack
+        actions: [read, create]
+      - tool: openai
+        actions: [read, create]
+
+# Blockchain configuration
+chain:
+  name: hedera
+  chainId: 295
+  rpcUrl: ${HEDERA_RPC_URL}
+
+# Cache settings
+cache:
+  ttlSeconds: 300
+
+# Server settings
+server:
+  port: 8080
+  host: 0.0.0.0
+  readTimeoutMs: 30000
+  writeTimeoutMs: 60000
