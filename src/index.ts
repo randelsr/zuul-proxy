@@ -1,3 +1,6 @@
+// Load environment variables from .env file
+import 'dotenv/config';
+
 import { startServer } from './api/server.js';
 import { loadConfigDefault } from './config/loader.js';
 import { createChainDriver } from './chain/factory.js';
