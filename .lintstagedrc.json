@@ -1,0 +1,6 @@
+{
+  "src/**/*.ts": ["eslint --fix", "prettier --write"],
+  "tests/**/*.ts": ["eslint --fix", "prettier --write"],
+  "contracts/**/*.ts": ["eslint --fix", "prettier --write"],
+  "contracts/**/*.sol": ["prettier --write"]
+}
