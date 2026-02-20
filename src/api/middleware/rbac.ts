@@ -86,27 +86,31 @@ export function rbacMiddleware(
       // Step 2: Extract tool from target URL
       const toolResult = toolRegistry.findTool(signedRequest.targetUrl);
 
+      let toolKey: ToolKey;
       if (!toolResult.ok) {
         logger.warn({ requestId, targetUrl: signedRequest.targetUrl }, 'Unknown tool');
-        context.status(404);
-        return context.json({
-          jsonrpc: '2.0',
-          id: null,
-          error: {
-            code: toolResult.error.code,
-            message: toolResult.error.message,
-            data: toolResult.error.data,
-          },
-          _governance: {
-            request_id: requestId,
-            agent: recoveredAddress,
-            timestamp: Math.floor(Date.now() / 1000),
-            error_type: 'request/unknown_tool',
-          },
+
+        // Set sentinel tool for audit middleware (agent has intent via signature)
+        toolKey = 'unknown' as ToolKey;
+        context.set('toolKey', toolKey);
+        context.set('action', action);
+
+        // Set flag to indicate unknown tool error
+        context.set('unknownTool', {
+          code: toolResult.error.code,
+          message: toolResult.error.message,
+          data: toolResult.error.data,
         });
+
+        // Continue to audit middleware so authenticated request is logged
+        logger.info(
+          { requestId, agent: recoveredAddress, tool: toolKey, action },
+          'Unknown tool detected (continuing for audit)'
+        );
+        return await next();
       }
 
-      const toolKey: ToolKey = toolResult.value.key;
+      toolKey = toolResult.value.key;
 
       // Step 3: Check permission (with cache and chain lookup)
       const roleResult = await permissionCache.get(recoveredAddress, chainDriver);
@@ -141,37 +145,36 @@ export function rbacMiddleware(
       // to runtime RoleWithPermissions (Map<ToolKey, Set<PermissionAction>>) for O(1) lookups
       const role = roleResult.value;
 
-      // Step 4: Check if agent is active
+      // Step 4: Attach tool and action to context IMMEDIATELY
+      // This ensures audit middleware can capture ALL authenticated requests
+      // including revocations, permission denials, and other authorized failures
+      context.set('toolKey', toolKey);
+      context.set('action', action);
+      context.set('role', role);
+
+      // Step 5: Check if agent is active
+      // If revoked, set flag but DON'T return early - audit middleware must run
       if (!role.isActive) {
         logger.warn(
           { requestId, agent: recoveredAddress, roleId: role.roleId },
           'Agent is revoked (emergency)'
         );
-        context.status(403);
-        return context.json({
-          jsonrpc: '2.0',
-          id: null,
-          error: {
-            code: -32012,
-            message: 'Agent is revoked',
-            data: { reason: 'emergency_revoke' },
-          },
-          _governance: {
-            request_id: requestId,
-            agent: recoveredAddress,
-            tool: toolKey,
-            action,
-            timestamp: Math.floor(Date.now() / 1000),
-            error_type: 'permission/agent_revoked',
-          },
-        });
-      }
 
-      // Step 5: Attach tool and action to context for next middleware (even on denial)
-      // This ensures audit middleware can capture denied requests
-      context.set('toolKey', toolKey);
-      context.set('action', action);
-      context.set('role', role);
+        // Set revocation flag on context
+        // This allows audit middleware to run BEFORE returning error
+        context.set('agentRevoked', {
+          code: -32012,
+          message: 'Agent is revoked',
+          data: { reason: 'emergency_revoke' },
+        });
+
+        // Continue to audit middleware so authenticated request is logged
+        logger.info(
+          { requestId, agent: recoveredAddress, tool: toolKey, action },
+          'Agent revoked (continuing for audit)'
+        );
+        return await next();
+      }
 
       // Step 6: Check if agent has permission for (tool, action)
       const toolPermissions = role.permissions.get(toolKey);

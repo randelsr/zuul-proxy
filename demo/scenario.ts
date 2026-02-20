@@ -172,32 +172,24 @@ export async function runDemoScenario(): Promise<void> {
     const revokeAgentAddress = agentAddress || agent.getAddress();
 
     try {
-      // Verify agent currently has access
-      console.log(`\n[6.1] Verify agent ${revokeAgentAddress.slice(0, 10)}... has access`);
+      // Verify agent currently has access by making a signed request
+      console.log(`\n[6.1] Verify agent ${revokeAgentAddress.slice(0, 10)}... CAN make tool calls`);
 
+      let preRevokeSuccess = false;
       try {
-        const toolsCheckResp = await fetch(`${proxyUrl}/rpc`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: 'tools/list',
-            params: { agent_address: revokeAgentAddress },
-            id: 'tools-check',
-          }),
-        });
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const toolsCheck = (await toolsCheckResp.json()) as any;
-        if (toolsCheck.result?.tools.length > 0) {
-          console.log(`✓ Agent has access to ${toolsCheck.result.tools.length} tools`);
-        }
+        const preRevokeResp = await agent.callTool(
+          'GET',
+          'https://api.github.com/repos/anthropics/claude-code'
+        );
+        console.log('✓ Pre-revoke: Tool call SUCCEEDED');
+        console.log(`  Response: ${JSON.stringify(preRevokeResp.result).substring(0, 80)}...`);
+        preRevokeSuccess = true;
       } catch (error) {
-        console.log(`ℹ Could not verify current access: ${String(error)}`);
+        console.log(`ℹ Pre-revoke tool call failed: ${String(error)}`);
       }
 
       // Emergency revoke
-      console.log(`\n[6.2] Admin calls emergencyRevoke(${revokeAgentAddress.slice(0, 10)}...)`);
+      console.log(`\n[6.2] Admin calls /admin/rbac/revoke for agent ${revokeAgentAddress.slice(0, 10)}...`);
 
       const revokeResp = await fetch(`${proxyUrl}/admin/rbac/revoke`, {
         method: 'POST',
@@ -211,76 +203,58 @@ export async function runDemoScenario(): Promise<void> {
       if (revokeResp.status === 200) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const revokeData = (await revokeResp.json()) as any;
-        console.log('✓ Agent revoked successfully');
+        console.log('✓ Revocation endpoint returned 200 OK');
         console.log(`  Message: ${revokeData.message}`);
         console.log(`  Transaction: ${revokeData.tx_hash?.slice(0, 10)}...`);
+        console.log('  (Cache for this agent has been invalidated)');
 
         // Wait for blockchain to process
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } else {
-        console.log(`ℹ Revocation endpoint not available or failed (${revokeResp.status})`);
+        console.log(`ℹ Revocation endpoint returned HTTP ${revokeResp.status}`);
       }
 
-      // Verify revocation by querying capabilities
-      console.log(`\n[6.3] Verify agent capabilities AFTER revocation`);
+      // Verify revocation by attempting a tool call
+      console.log(`\n[6.3] Verify revocation: Attempt tool call with revoked agent`);
 
       if (revokeResp.status === 200) {
-        // If revocation succeeded, query tools/list endpoint to verify revocation
+        // If revocation succeeded, attempt a tool call with the revoked agent's key
         try {
-          const toolsAfterRevoke = await fetch(`${proxyUrl}/rpc`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              method: 'tools/list',
-              params: { agent_address: revokeAgentAddress },
-              id: 'tools-after-revoke',
-            }),
-          });
+          const postRevokeResp = await agent.callTool(
+            'GET',
+            'https://api.github.com/repos/anthropics/claude-code'
+          );
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const toolsData = (await toolsAfterRevoke.json()) as any;
-          const toolCount = toolsData.result?.tools?.length || 0;
-
-          console.log(`✓ Agent capabilities after revocation:`);
-          console.log(`  Tools available: ${toolCount}`);
-
-          if (toolCount === 0) {
-            console.log(`  ✅ Revocation EFFECTIVE: Agent sees zero tools (fail-closed)`);
-          } else {
-            console.log(`  ⚠️  Agent still has ${toolCount} tools`);
-            console.log('  (Cache TTL may not have expired yet)');
-          }
+          // If we got here, the call succeeded (unexpected after revocation)
+          console.log('⚠️  Tool call SUCCEEDED (unexpected)');
+          console.log('  This could mean:');
+          console.log('  - Revocation did not take effect');
+          console.log('  - Cache was not invalidated');
+          console.log(`  Response: ${JSON.stringify(postRevokeResp.result).substring(0, 80)}...`);
         } catch (error) {
-          console.log(`ℹ Could not check capabilities: ${String(error)}`);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const err = error as any;
+          const httpStatus = err.httpStatus;
+          const errCode = err.code;
+
+          if (httpStatus === 403 && errCode === -32012) {
+            console.log('✅ REVOCATION VERIFIED: Tool call denied with 403/-32012');
+            console.log(`  Error: ${err.message}`);
+            console.log('  Agent is successfully revoked and cannot access tools');
+          } else if (httpStatus === 403) {
+            console.log('✓ Tool call denied (HTTP 403)');
+            console.log(`  Error code: ${errCode}`);
+            console.log(`  Message: ${err.message}`);
+          } else if (httpStatus === 401) {
+            console.log('ℹ Signature validation failed (HTTP 401)');
+            console.log('  (This means we reached the proxy, but auth layer rejected it)');
+          } else {
+            console.log(`ℹ Tool call failed with HTTP ${httpStatus}`);
+            console.log(`  Error: ${err.message}`);
+          }
         }
       } else {
-        // Revocation failed, try to make a tool call with test headers to check revocation
-        try {
-          const revokedCallResp = await fetch(`${proxyUrl}/forward/https://api.github.com/repos/anthropics/claude-code`, {
-            method: 'GET',
-            headers: {
-              'X-Agent-Address': revokeAgentAddress,
-              'X-Signature': 'test-signature',
-              'X-Nonce': 'test-nonce',
-              'X-Timestamp': String(Math.floor(Date.now() / 1000)),
-            },
-          });
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const revokedCallData = (await revokedCallResp.json()) as any;
-
-          if (revokedCallResp.status === 403 || revokedCallData.error?.code === -32012) {
-            console.log('✓ Tool call denied: Agent is REVOKED (verified)');
-            console.log(`  Error: ${revokedCallData.error?.message}`);
-          } else if (revokedCallResp.status === 401) {
-            console.log('✓ Agent signature validation triggered (revocation check passed)');
-          } else {
-            console.log(`ℹ Revocation status unclear (HTTP ${revokedCallResp.status})`);
-          }
-        } catch (error) {
-          console.log(`ℹ Could not verify revocation: ${String(error)}`);
-        }
+        console.log('ℹ Skipping post-revoke verification (revocation endpoint failed)');
       }
     } catch (error) {
       console.log(`ℹ Emergency revoke step skipped: ${String(error)}`);

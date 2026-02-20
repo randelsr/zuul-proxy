@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createPublicClient, createWalletClient, http, keccak256, type Abi } from 'viem';
+import { createPublicClient, createWalletClient, http, keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { AUDIT_ABI } from '../../src/contracts/abis.js';
 
 // Hardhat test accounts with known private keys
 const ACCOUNT_0 = privateKeyToAccount(
@@ -12,138 +13,6 @@ const ACCOUNT_1 = privateKeyToAccount(
 
 const RPC_URL = 'http://127.0.0.1:8545';
 const AUDIT_ADDRESS = process.env.AUDIT_CONTRACT_ADDRESS || '0x0';
-
-// Audit contract ABI (minimal for our tests)
-const AUDIT_ABI = [
-  {
-    type: 'function',
-    name: 'recordEntry',
-    inputs: [
-      { name: 'agent', type: 'address' },
-      { name: 'encryptedPayload', type: 'bytes' },
-      { name: 'payloadHash', type: 'bytes32' },
-      { name: 'isSuccess', type: 'bool' },
-      { name: 'tool', type: 'string' },
-      { name: 'errorType', type: 'string' },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'getEntriesByAgent',
-    inputs: [
-      { name: 'agent', type: 'address' },
-      { name: 'offset', type: 'uint256' },
-      { name: 'limit', type: 'uint256' },
-    ],
-    outputs: [
-      {
-        type: 'tuple[]',
-        components: [
-          { name: 'agent', type: 'address' },
-          { name: 'encryptedPayload', type: 'bytes' },
-          { name: 'payloadHash', type: 'bytes32' },
-          { name: 'timestamp', type: 'uint256' },
-          { name: 'isSuccess', type: 'bool' },
-          { name: 'tool', type: 'string' },
-          { name: 'errorType', type: 'string' },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getEntriesByTool',
-    inputs: [
-      { name: 'tool', type: 'string' },
-      { name: 'offset', type: 'uint256' },
-      { name: 'limit', type: 'uint256' },
-    ],
-    outputs: [
-      {
-        type: 'tuple[]',
-        components: [
-          { name: 'agent', type: 'address' },
-          { name: 'encryptedPayload', type: 'bytes' },
-          { name: 'payloadHash', type: 'bytes32' },
-          { name: 'timestamp', type: 'uint256' },
-          { name: 'isSuccess', type: 'bool' },
-          { name: 'tool', type: 'string' },
-          { name: 'errorType', type: 'string' },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getEntriesByTimeRange',
-    inputs: [
-      { name: 'startTime', type: 'uint256' },
-      { name: 'endTime', type: 'uint256' },
-      { name: 'offset', type: 'uint256' },
-      { name: 'limit', type: 'uint256' },
-    ],
-    outputs: [
-      {
-        type: 'tuple[]',
-        components: [
-          { name: 'agent', type: 'address' },
-          { name: 'encryptedPayload', type: 'bytes' },
-          { name: 'payloadHash', type: 'bytes32' },
-          { name: 'timestamp', type: 'uint256' },
-          { name: 'isSuccess', type: 'bool' },
-          { name: 'tool', type: 'string' },
-          { name: 'errorType', type: 'string' },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getAgentEntryCount',
-    inputs: [{ name: 'agent', type: 'address' }],
-    outputs: [{ type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getToolEntryCount',
-    inputs: [{ name: 'tool', type: 'string' }],
-    outputs: [{ type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getEntryCount',
-    inputs: [],
-    outputs: [{ type: 'uint256' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
-    name: 'getEntry',
-    inputs: [{ name: 'index', type: 'uint256' }],
-    outputs: [
-      {
-        type: 'tuple',
-        components: [
-          { name: 'agent', type: 'address' },
-          { name: 'encryptedPayload', type: 'bytes' },
-          { name: 'payloadHash', type: 'bytes32' },
-          { name: 'timestamp', type: 'uint256' },
-          { name: 'isSuccess', type: 'bool' },
-          { name: 'tool', type: 'string' },
-          { name: 'errorType', type: 'string' },
-        ],
-      },
-    ],
-    stateMutability: 'view',
-  },
-] as const satisfies Abi;
 
 /**
  * Audit Contract Query Functions Integration Tests (Story #12, #13)
@@ -175,8 +44,6 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
   describe('getEntriesByAgent', () => {
     it('should return entries for a specific agent', async () => {
       const agent = ACCOUNT_1.address;
-      const tool = 'github';
-      const errorType = '';
       const payloadHash = keccak256('0x' + Buffer.from('test_payload').toString('hex') as `0x${string}`);
 
       // Record 3 entries for this agent
@@ -186,7 +53,7 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
           address: auditAddress,
           abi: AUDIT_ABI,
           functionName: 'recordEntry',
-          args: [agent, payload, payloadHash, true, tool, errorType],
+          args: [agent, payload, payloadHash],
         });
       }
 
@@ -199,12 +66,12 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
       })) as unknown[];
 
       expect(result).toHaveLength(3);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((result as any[]).every((e) => e.agent === agent)).toBe(true);
     });
 
     it('should respect pagination offset and limit', async () => {
       const agent = ACCOUNT_0.address;
-      const tool = 'slack';
 
       // Record 5 entries
       for (let i = 0; i < 5; i++) {
@@ -214,7 +81,7 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
           address: auditAddress,
           abi: AUDIT_ABI,
           functionName: 'recordEntry',
-          args: [agent, payload, payloadHash, true, tool, ''],
+          args: [agent, payload, payloadHash],
         });
       }
 
@@ -243,12 +110,11 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
     });
   });
 
-  describe('getEntriesByTool', () => {
+  describe.skip('getEntriesByTool', () => {
     it('should return entries for a specific tool', async () => {
-      const tool = 'openai';
       const agents = [ACCOUNT_0.address, ACCOUNT_1.address];
 
-      // Record entries for different agents but same tool
+      // Record entries for different agents but same tool (encrypted in payload)
       for (const agent of agents) {
         const payload = Buffer.from(JSON.stringify({ agent }));
         const payloadHash = keccak256(('0x' + Buffer.from(agent).toString('hex')) as `0x${string}`);
@@ -256,27 +122,29 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
           address: auditAddress,
           abi: AUDIT_ABI,
           functionName: 'recordEntry',
-          args: [agent, payload, payloadHash, true, tool, ''],
+          args: [agent, payload, payloadHash],
         });
       }
 
       // Query tool entries
-      const result = (await publicClient.readContract({
-        address: auditAddress,
-        abi: AUDIT_ABI,
-        functionName: 'getEntriesByTool',
-        args: [tool, 0n, 10n],
-      })) as unknown[];
+      // NOTE: This test is skipped because tool is encrypted in the payload
+      // const result = (await publicClient.readContract({
+      //   address: auditAddress,
+      //   abi: AUDIT_ABI,
+      //   functionName: 'getEntriesByTool',
+      //   args: [tool, 0n, 10n],
+      // })) as unknown[];
+      const result: unknown[] = [];
 
       expect(result.length).toBeGreaterThanOrEqual(agents.length);
-      expect((result as any[]).every((e) => e.tool === tool)).toBe(true);
+      // NOTE: tool is encrypted in payload, not a direct field
+      // expect((result as any[]).every((e) => e.tool === tool)).toBe(true);
     });
   });
 
   describe('getEntriesByTimeRange', () => {
     it('should return entries within time range', async () => {
       const agent = ACCOUNT_0.address;
-      const tool = 'test-tool';
 
       // Record an entry (timestamp is set by block.timestamp)
       const payload = Buffer.from(JSON.stringify({ test: 'data' }));
@@ -285,7 +153,7 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
         address: auditAddress,
         abi: AUDIT_ABI,
         functionName: 'recordEntry',
-        args: [agent, payload, payloadHash, true, tool, ''],
+        args: [agent, payload, payloadHash],
       });
 
       const now = Math.floor(Date.now() / 1000);
@@ -319,7 +187,6 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
   describe('Count functions', () => {
     it('getAgentEntryCount should return correct count', async () => {
       const agent = '0xcafe000000000000000000000000000000000000' as `0x${string}`;
-      const tool = 'count-test';
 
       // Record 5 entries
       for (let i = 0; i < 5; i++) {
@@ -329,7 +196,7 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
           address: auditAddress,
           abi: AUDIT_ABI,
           functionName: 'recordEntry',
-          args: [agent, payload, payloadHash, true, tool, ''],
+          args: [agent, payload, payloadHash],
         });
       }
 
@@ -352,7 +219,6 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
       })) as unknown;
 
       const agent = ACCOUNT_0.address;
-      const tool = 'total-count-test';
       const payload = Buffer.from(JSON.stringify({ test: 'data' }));
       const payloadHash = keccak256('0x' + Buffer.from('total_test').toString('hex') as `0x${string}`);
 
@@ -362,7 +228,7 @@ describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
           address: auditAddress,
           abi: AUDIT_ABI,
           functionName: 'recordEntry',
-          args: [agent, payload, payloadHash, true, tool, ''],
+          args: [agent, payload, payloadHash],
         });
       }
 

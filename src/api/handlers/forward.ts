@@ -26,6 +26,10 @@ export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecuto
     const toolKey = context.get('toolKey') as ToolKey;
     const action = context.get('action') as PermissionAction;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const unknownTool = context.get('unknownTool') as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const agentRevoked = context.get('agentRevoked') as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const permissionDenied = context.get('permissionDenied') as any;
 
     if (!recoveredAddress || !signedRequest || !toolKey || !action) {
@@ -43,8 +47,54 @@ export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecuto
       });
     }
 
-    // Check if RBAC denied permission (set by RBAC middleware)
-    // Audit middleware has already run at this point
+    // Check for authorization/validation errors in precedence order
+    // Audit middleware has already run at this point for all authenticated requests
+
+    // Priority 1: Unknown tool (404)
+    if (unknownTool) {
+      context.status(404);
+      return context.json({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: unknownTool.code,
+          message: unknownTool.message,
+          data: unknownTool.data,
+        },
+        _governance: {
+          request_id: requestId,
+          agent: recoveredAddress,
+          tool: toolKey,
+          action,
+          timestamp: Math.floor(Date.now() / 1000),
+          error_type: 'request/unknown_tool',
+        },
+      });
+    }
+
+    // Priority 2: Agent revoked (403)
+    if (agentRevoked) {
+      context.status(403);
+      return context.json({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: agentRevoked.code,
+          message: agentRevoked.message,
+          data: agentRevoked.data,
+        },
+        _governance: {
+          request_id: requestId,
+          agent: recoveredAddress,
+          tool: toolKey,
+          action,
+          timestamp: Math.floor(Date.now() / 1000),
+          error_type: 'permission/agent_revoked',
+        },
+      });
+    }
+
+    // Priority 3: Permission denied (403)
     if (permissionDenied) {
       context.status(403);
       return context.json({

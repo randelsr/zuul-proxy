@@ -51,6 +51,35 @@ export function auditMiddleware(
           const requestHash = hashBody(requestBody);
           const responseHash = hashBody(responseBodyText);
 
+          // Determine error type from semantic flags (set by prior middleware)
+          // NOT from HTTP status code alone
+          let errorType = '';
+          if (!isSuccess) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const unknownTool = context.get('unknownTool') as any;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const agentRevoked = context.get('agentRevoked') as any;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const permissionDenied = context.get('permissionDenied') as any;
+
+            if (unknownTool) {
+              errorType = 'request/unknown_tool';
+            } else if (agentRevoked) {
+              errorType = 'permission/agent_revoked';
+            } else if (permissionDenied) {
+              errorType = 'permission/no_action_access';
+            } else if (status >= 400 && status < 500) {
+              // Client error (but not auth/authz): map to HTTP code
+              errorType = `http_${status}`;
+            } else if (status >= 500) {
+              // Server error: upstream or internal
+              errorType = `service/upstream_error`;
+            } else {
+              // Fallback
+              errorType = `http_${status}`;
+            }
+          }
+
           const payload = buildAuditPayload(
             recoveredAddress,
             toolKey,
@@ -58,7 +87,7 @@ export function auditMiddleware(
             signedRequest.targetUrl,
             signedRequest.method,
             status,
-            isSuccess ? '' : `http_${status}`, // Error code from HTTP status if not success
+            errorType, // Now semantic error type, not just HTTP status
             latencyMs,
             requestHash,
             responseHash

@@ -23,6 +23,10 @@ export type AuditSearchParams = Readonly<{
 
 /**
  * Audit search result
+ *
+ * Privacy-first design:
+ * - On-chain: agent, timestamp, payloadHash, encryptedPayload (4 fields)
+ * - Decrypted: tool, action, status, errorType (from encrypted payload only)
  */
 export type AuditSearchResult = Readonly<{
   query: AuditSearchParams;
@@ -30,12 +34,13 @@ export type AuditSearchResult = Readonly<{
   entries: ReadonlyArray<{
     agent: string;
     timestamp: number;
-    isSuccess: boolean;
-    tool: string;
-    errorType?: string;
     payloadHash: string;
     encryptedPayload?: string; // If decrypt=false
     payload?: Record<string, unknown>; // If decrypt=true
+    tool?: string; // Only if decrypt=true (from decrypted payload)
+    action?: string; // Only if decrypt=true (from decrypted payload)
+    status?: number; // Only if decrypt=true (from decrypted payload)
+    errorType?: string; // Only if decrypt=true (from decrypted payload)
   }>;
 }>;
 
@@ -165,24 +170,32 @@ export async function performAuditSearch(
     }
 
     // Transform entries for response
+    // Privacy-first design: only unencrypted fields from contract, rest from decryption
     const results = entries.map((entry: unknown) => {
       const e = entry as Record<string, unknown>;
+
+      // Base result: only fields from contract (agent, timestamp, hash)
       const result: Record<string, unknown> = {
         agent: e.agent,
         timestamp: Number(e.timestamp),
-        isSuccess: e.isSuccess,
-        tool: e.tool,
-        errorType: e.errorType || undefined,
         payloadHash: e.payloadHash,
       };
 
       if (params.decrypt && e.encryptedPayload) {
-        // Decrypt payload
+        // Decrypt to access tool, action, status, errorType
         const encryptedStr = String(e.encryptedPayload) as EncryptedPayload;
         const decrypted = encryptionService.decrypt(encryptedStr);
+
         if (decrypted.ok) {
           // decrypted.value is AuditPayload object
-          result.payload = decrypted.value as unknown as Record<string, unknown>;
+          const payload = decrypted.value as unknown as Record<string, unknown>;
+          result.payload = payload;
+
+          // Extract operational fields from decrypted payload
+          result.tool = payload.tool;
+          result.action = payload.action;
+          result.status = payload.status;
+          result.errorType = payload.errorType;
         } else {
           logger.warn(
             { error: (decrypted.error as Error).message },
@@ -191,7 +204,7 @@ export async function performAuditSearch(
           result.payload = null;
         }
       } else if (e.encryptedPayload) {
-        // Include encrypted payload as hex
+        // Include encrypted payload as hex (no operational details visible)
         if (typeof e.encryptedPayload === 'string') {
           result.encryptedPayload = e.encryptedPayload;
         } else {
