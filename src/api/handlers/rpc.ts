@@ -86,16 +86,27 @@ export function rpcHandler(
 
           if (roleResult.ok) {
             const role = roleResult.value;
-            // Filter tools: only include if agent has at least one permission for that tool
-            for (const tool of allTools) {
-              const toolPermissions = role.permissions.get(tool.key);
-              if (toolPermissions && toolPermissions.size > 0) {
-                tools.push({
-                  key: tool.key,
-                  base_url: tool.baseUrl,
-                  description: tool.description,
-                  allowed_actions: Array.from(toolPermissions),
-                });
+
+            // Check if agent is revoked (emergency revoke)
+            if (!role.isActive) {
+              logger.warn(
+                { requestId, agent: agentAddress, roleId: role.roleId },
+                'Agent is revoked, returning no tools'
+              );
+              // Return empty tools list for revoked agents (fail closed)
+            } else {
+              // Agent is active: filter tools by permission
+              // Filter tools: only include if agent has at least one permission for that tool
+              for (const tool of allTools) {
+                const toolPermissions = role.permissions.get(tool.key);
+                if (toolPermissions && toolPermissions.size > 0) {
+                  tools.push({
+                    key: tool.key,
+                    base_url: tool.baseUrl,
+                    description: tool.description,
+                    allowed_actions: Array.from(toolPermissions),
+                  });
+                }
               }
             }
           } else {
