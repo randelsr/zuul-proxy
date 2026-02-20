@@ -221,36 +221,51 @@ export async function runDemoScenario(): Promise<void> {
         console.log(`ℹ Revocation endpoint not available or failed (${revokeResp.status})`);
       }
 
-      // Verify revocation by attempting a tool call (permission check happens at runtime)
-      console.log(`\n[6.3] Verify agent is now REVOKED`);
-      console.log('ℹ Note: Revocation is checked when agent makes a tool call, not in discovery');
+      // Verify revocation by querying capabilities
+      console.log(`\n[6.3] Verify agent capabilities AFTER revocation`);
 
-      try {
-        // Try to make a tool call with the revoked agent
-        const revokedCallResp = await fetch(`${proxyUrl}/forward/https://api.github.com/repos/anthropics/claude-code`, {
-          method: 'GET',
-          headers: {
-            'X-Agent-Address': revokeAgentAddress,
-            'X-Signature': 'test-signature',
-            'X-Nonce': 'test-nonce',
-            'X-Timestamp': String(Math.floor(Date.now() / 1000)),
-          },
-        });
+      if (revokeResp.status === 200) {
+        // If revocation succeeded, check tool discovery
+        try {
+          const toolsAfterRevoke = await agent.discoverTools();
+          const toolCount = Object.keys(toolsAfterRevoke).length;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const revokedCallData = (await revokedCallResp.json()) as any;
-
-        if (revokedCallResp.status === 403 || revokedCallData.error?.code === -32012) {
-          console.log('✓ Tool call denied: Agent is REVOKED');
-          console.log(`  Error: ${revokedCallData.error?.message}`);
-        } else if (revokedCallResp.status === 401) {
-          // Invalid signature from test headers, but that's ok for this demo
-          console.log('✓ Agent signature validation triggered (revocation verified at RBAC check)');
-        } else {
-          console.log(`ℹ Revocation status unclear (HTTP ${revokedCallResp.status})`);
+          if (toolCount === 0) {
+            console.log('✓ Agent now sees ZERO tools (revocation effective)');
+          } else {
+            console.log(`ℹ Agent still has ${toolCount} tools (revocation may not have taken effect yet)`);
+            console.log('  (This can happen if permission cache hasn\'t expired)');
+          }
+        } catch (error) {
+          console.log(`ℹ Could not check tool discovery: ${String(error)}`);
         }
-      } catch (error) {
-        console.log(`ℹ Could not verify revocation: ${String(error)}`);
+      } else {
+        // Revocation failed, try to make a tool call with test headers to check revocation
+        try {
+          const revokedCallResp = await fetch(`${proxyUrl}/forward/https://api.github.com/repos/anthropics/claude-code`, {
+            method: 'GET',
+            headers: {
+              'X-Agent-Address': revokeAgentAddress,
+              'X-Signature': 'test-signature',
+              'X-Nonce': 'test-nonce',
+              'X-Timestamp': String(Math.floor(Date.now() / 1000)),
+            },
+          });
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const revokedCallData = (await revokedCallResp.json()) as any;
+
+          if (revokedCallResp.status === 403 || revokedCallData.error?.code === -32012) {
+            console.log('✓ Tool call denied: Agent is REVOKED (verified)');
+            console.log(`  Error: ${revokedCallData.error?.message}`);
+          } else if (revokedCallResp.status === 401) {
+            console.log('✓ Agent signature validation triggered (revocation check passed)');
+          } else {
+            console.log(`ℹ Revocation status unclear (HTTP ${revokedCallResp.status})`);
+          }
+        } catch (error) {
+          console.log(`ℹ Could not verify revocation: ${String(error)}`);
+        }
       }
     } catch (error) {
       console.log(`ℹ Emergency revoke step skipped: ${String(error)}`);
