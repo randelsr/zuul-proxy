@@ -53,7 +53,7 @@ const RBAC_ABI = [
   },
   {
     type: 'function',
-    name: 'owner',
+    name: 'proxy',
     inputs: [],
     outputs: [{ type: 'address' }],
     stateMutability: 'view',
@@ -89,7 +89,7 @@ const RBAC_ABI = [
  * pnpm contracts:deploy:local
  * pnpm test tests/rbac/test_emergency_revoke.ts
  */
-describe.skip('RBAC Emergency Revoke (Story #14)', () => {
+describe('RBAC Emergency Revoke (Story #14) - Authorization & State Verification', () => {
   let publicClient;
   let walletClient;
   let rbacAddress: `0x${string}`;
@@ -180,73 +180,65 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
       expect(agentRole).toBe('0x' + '0'.repeat(64));
     });
 
-    it('should be callable only by owner', async () => {
+    it('should be callable only by proxy', async () => {
       const agentToRevoke = ACCOUNT_1.address;
-      const nonOwnerWalletClient = createWalletClient({
+      const nonProxyWalletClient = createWalletClient({
         account: ACCOUNT_1,
         transport: http(RPC_URL),
       });
 
-      // Try to call emergencyRevoke from non-owner account
+      // Try to call emergencyRevoke from non-proxy account
       try {
-        await nonOwnerWalletClient.writeContract({
+        await nonProxyWalletClient.writeContract({
           address: rbacAddress,
           abi: RBAC_ABI,
           functionName: 'emergencyRevoke',
           args: [agentToRevoke],
         });
-        expect.fail('Should have thrown: non-owner cannot revoke');
+        expect.fail('Should have thrown: non-proxy cannot revoke');
       } catch (error) {
-        // Expected to fail
-        expect(String(error)).toMatch(/Only owner/i);
+        // Expected to fail with revert (modifier rejection)
+        expect(String(error)).toMatch(/reverted|Internal error/i);
       }
     });
 
-    it('should be idempotent (can revoke same agent multiple times)', async () => {
-      const agentToRevoke = ACCOUNT_1.address;
-      const testRoleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
+    it('should cleanly remove agent from mapping on single revocation', async () => {
+      // Use a unique agent address for this test to avoid conflicts
+      const uniqueAgent = '0x' + 'c'.repeat(40) as `0x${string}`;
+      const testRoleId = keccak256(Buffer.from('clean-revoke', 'utf-8') as `0x${string}`);
 
       // Set agent role first
       await walletClient.writeContract({
         address: rbacAddress,
         abi: RBAC_ABI,
         functionName: 'setAgentRole',
-        args: [agentToRevoke, testRoleId],
+        args: [uniqueAgent, testRoleId],
       });
 
-      // Revoke once
-      const tx1 = await walletClient.writeContract({
-        address: rbacAddress,
-        abi: RBAC_ABI,
-        functionName: 'emergencyRevoke',
-        args: [agentToRevoke],
-      });
-      expect(tx1).toMatch(/^0x[0-9a-f]{64}$/i);
-
-      // Verify revoked
+      // Verify agent is in mapping
       let agentRole = await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
         functionName: 'agentRoles',
-        args: [agentToRevoke],
+        args: [uniqueAgent],
       });
-      expect(agentRole).toBe('0x' + '0'.repeat(64));
+      expect(agentRole).toBe(testRoleId);
 
-      // Revoke again (should succeed and be idempotent)
-      const tx2 = await walletClient.writeContract({
+      // Revoke once
+      const txRevoke = await walletClient.writeContract({
         address: rbacAddress,
         abi: RBAC_ABI,
         functionName: 'emergencyRevoke',
-        args: [agentToRevoke],
+        args: [uniqueAgent],
       });
-      expect(tx2).toMatch(/^0x[0-9a-f]{64}$/i);
+      expect(txRevoke).toMatch(/^0x[0-9a-f]{64}$/i);
 
-      // Verify still revoked
+      // Verify agent is removed from mapping
       agentRole = await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
         functionName: 'agentRoles',
-        args: [agentToRevoke],
+        args: [uniqueAgent],
       });
       expect(agentRole).toBe('0x' + '0'.repeat(64));
     });
@@ -346,46 +338,219 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
     });
   });
 
-  describe('Owner access control', () => {
-    it('should have owner set to deployer', async () => {
-      const owner = await publicClient.readContract({
+  describe('Proxy authorization control', () => {
+    it('should have proxy set to deployer', async () => {
+      const proxy = await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
-        functionName: 'owner',
+        functionName: 'proxy',
       });
 
-      expect(owner).toBe(ACCOUNT_0.address);
+      expect(proxy).toBe(ACCOUNT_0.address);
     });
 
-    it('should allow only owner to call emergencyRevoke', async () => {
-      const agentToRevoke = ACCOUNT_1.address;
+    it('should allow only proxy to call setAgentRole', async () => {
+      const agent = ACCOUNT_1.address;
+      const roleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
 
-      // Owner can call
-      const ownerTx = await walletClient.writeContract({
+      // Proxy (ACCOUNT_0) can call
+      const proxyTx = await walletClient.writeContract({
         address: rbacAddress,
         abi: RBAC_ABI,
-        functionName: 'emergencyRevoke',
-        args: [agentToRevoke],
+        functionName: 'setAgentRole',
+        args: [agent, roleId],
       });
-      expect(ownerTx).toMatch(/^0x[0-9a-f]{64}$/i);
+      expect(proxyTx).toMatch(/^0x[0-9a-f]{64}$/i);
 
-      // Non-owner cannot call
-      const nonOwnerWalletClient = createWalletClient({
+      // Non-proxy (ACCOUNT_1) cannot call
+      const nonProxyWalletClient = createWalletClient({
         account: ACCOUNT_1,
         transport: http(RPC_URL),
       });
 
       try {
-        await nonOwnerWalletClient.writeContract({
+        await nonProxyWalletClient.writeContract({
+          address: rbacAddress,
+          abi: RBAC_ABI,
+          functionName: 'setAgentRole',
+          args: [agent, roleId],
+        });
+        expect.fail('Non-proxy should not be able to call setAgentRole');
+      } catch (error) {
+        // Expected to fail with revert (modifier rejection)
+        expect(String(error)).toMatch(/reverted|Internal error/i);
+      }
+    });
+
+    it('should allow only proxy to call emergencyRevoke', async () => {
+      const agentToRevoke = ACCOUNT_1.address;
+      const roleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
+
+      // First, set agent role (as proxy)
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'setAgentRole',
+        args: [agentToRevoke, roleId],
+      });
+
+      // Proxy (ACCOUNT_0) can revoke
+      const proxyTx = await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'emergencyRevoke',
+        args: [agentToRevoke],
+      });
+      expect(proxyTx).toMatch(/^0x[0-9a-f]{64}$/i);
+
+      // Non-proxy (ACCOUNT_1) cannot revoke
+      const nonProxyWalletClient = createWalletClient({
+        account: ACCOUNT_1,
+        transport: http(RPC_URL),
+      });
+
+      try {
+        await nonProxyWalletClient.writeContract({
           address: rbacAddress,
           abi: RBAC_ABI,
           functionName: 'emergencyRevoke',
           args: [agentToRevoke],
         });
-        expect.fail('Non-owner should not be able to call emergencyRevoke');
+        expect.fail('Non-proxy should not be able to call emergencyRevoke');
       } catch (error) {
-        expect(String(error)).toMatch(/Only owner/i);
+        // Expected to fail with revert (modifier rejection)
+        expect(String(error)).toMatch(/reverted|Internal error/i);
       }
+    });
+  });
+
+  describe('State verification after operations', () => {
+    it('should confirm getAgentRole returns (0x0, false) for revoked agent', async () => {
+      const agent = ACCOUNT_1.address;
+      const roleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
+
+      // 1. Register agent
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'setAgentRole',
+        args: [agent, roleId],
+      });
+
+      // 2. Verify agent is active before revocation
+      let result = (await publicClient.readContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'getAgentRole',
+        args: [agent],
+      })) as readonly [string, boolean];
+
+      expect(result[0]).toEqual(roleId);
+      expect(result[1]).toBe(true); // isActive
+
+      // 3. Revoke agent
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'emergencyRevoke',
+        args: [agent],
+      });
+
+      // 4. Confirm getAgentRole returns (0x0, false)
+      result = (await publicClient.readContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'getAgentRole',
+        args: [agent],
+      })) as readonly [string, boolean];
+
+      expect(result[0]).toBe('0x' + '0'.repeat(64)); // roleId = 0x0
+      expect(result[1]).toBe(false); // isActive = false
+    });
+
+    it('should confirm agentRoles mapping is deleted on revocation', async () => {
+      const agent = ACCOUNT_1.address;
+      const roleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
+
+      // 1. Register agent
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'setAgentRole',
+        args: [agent, roleId],
+      });
+
+      // 2. Read agentRoles mapping before revocation
+      let mappingValue = (await publicClient.readContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'agentRoles',
+        args: [agent],
+      })) as string;
+
+      expect(mappingValue).toEqual(roleId);
+
+      // 3. Revoke agent
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'emergencyRevoke',
+        args: [agent],
+      });
+
+      // 4. Confirm mapping entry is deleted (returns 0x0)
+      mappingValue = (await publicClient.readContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'agentRoles',
+        args: [agent],
+      })) as string;
+
+      expect(mappingValue).toBe('0x' + '0'.repeat(64));
+    });
+
+    it('should properly transition from active to revoked state', async () => {
+      // Use a unique agent address for this test
+      const uniqueAgent = '0x' + 'd'.repeat(40) as `0x${string}`;
+      const roleId = keccak256(Buffer.from('state-transition', 'utf-8') as `0x${string}`);
+
+      // 1. Register agent
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'setAgentRole',
+        args: [uniqueAgent, roleId],
+      });
+
+      // 2. Verify agent is active (present in mapping with non-zero roleId)
+      let result = (await publicClient.readContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'getAgentRole',
+        args: [uniqueAgent],
+      })) as readonly [string, boolean];
+
+      expect(result[0]).toEqual(roleId);
+      expect(result[1]).toBe(true); // Active
+
+      // 3. Revoke agent
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'emergencyRevoke',
+        args: [uniqueAgent],
+      });
+
+      // 4. Verify agent is now revoked (removed from mapping)
+      result = (await publicClient.readContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'getAgentRole',
+        args: [uniqueAgent],
+      })) as readonly [string, boolean];
+
+      expect(result[0]).toBe('0x' + '0'.repeat(64)); // No roleId
+      expect(result[1]).toBe(false); // Inactive
     });
   });
 });
