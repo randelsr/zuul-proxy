@@ -1,0 +1,411 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createPublicClient, createWalletClient, http, keccak256, type Abi } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+
+// Hardhat test accounts with known private keys
+const ACCOUNT_0 = privateKeyToAccount(
+  '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
+);
+const ACCOUNT_1 = privateKeyToAccount(
+  '0x7797c0f3db8b946604ec2039dfd9763e4ffdc53174342a2ed9b14fa3eda666a5'
+);
+
+const RPC_URL = 'http://127.0.0.1:8545';
+const AUDIT_ADDRESS = process.env.AUDIT_CONTRACT_ADDRESS || '0x0';
+
+// Audit contract ABI (minimal for our tests)
+const AUDIT_ABI = [
+  {
+    type: 'function',
+    name: 'recordEntry',
+    inputs: [
+      { name: 'agent', type: 'address' },
+      { name: 'encryptedPayload', type: 'bytes' },
+      { name: 'payloadHash', type: 'bytes32' },
+      { name: 'isSuccess', type: 'bool' },
+      { name: 'tool', type: 'string' },
+      { name: 'errorType', type: 'string' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'function',
+    name: 'getEntriesByAgent',
+    inputs: [
+      { name: 'agent', type: 'address' },
+      { name: 'offset', type: 'uint256' },
+      { name: 'limit', type: 'uint256' },
+    ],
+    outputs: [
+      {
+        type: 'tuple[]',
+        components: [
+          { name: 'agent', type: 'address' },
+          { name: 'encryptedPayload', type: 'bytes' },
+          { name: 'payloadHash', type: 'bytes32' },
+          { name: 'timestamp', type: 'uint256' },
+          { name: 'isSuccess', type: 'bool' },
+          { name: 'tool', type: 'string' },
+          { name: 'errorType', type: 'string' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getEntriesByTool',
+    inputs: [
+      { name: 'tool', type: 'string' },
+      { name: 'offset', type: 'uint256' },
+      { name: 'limit', type: 'uint256' },
+    ],
+    outputs: [
+      {
+        type: 'tuple[]',
+        components: [
+          { name: 'agent', type: 'address' },
+          { name: 'encryptedPayload', type: 'bytes' },
+          { name: 'payloadHash', type: 'bytes32' },
+          { name: 'timestamp', type: 'uint256' },
+          { name: 'isSuccess', type: 'bool' },
+          { name: 'tool', type: 'string' },
+          { name: 'errorType', type: 'string' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getEntriesByTimeRange',
+    inputs: [
+      { name: 'startTime', type: 'uint256' },
+      { name: 'endTime', type: 'uint256' },
+      { name: 'offset', type: 'uint256' },
+      { name: 'limit', type: 'uint256' },
+    ],
+    outputs: [
+      {
+        type: 'tuple[]',
+        components: [
+          { name: 'agent', type: 'address' },
+          { name: 'encryptedPayload', type: 'bytes' },
+          { name: 'payloadHash', type: 'bytes32' },
+          { name: 'timestamp', type: 'uint256' },
+          { name: 'isSuccess', type: 'bool' },
+          { name: 'tool', type: 'string' },
+          { name: 'errorType', type: 'string' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getAgentEntryCount',
+    inputs: [{ name: 'agent', type: 'address' }],
+    outputs: [{ type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getToolEntryCount',
+    inputs: [{ name: 'tool', type: 'string' }],
+    outputs: [{ type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getEntryCount',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
+    name: 'getEntry',
+    inputs: [{ name: 'index', type: 'uint256' }],
+    outputs: [
+      {
+        type: 'tuple',
+        components: [
+          { name: 'agent', type: 'address' },
+          { name: 'encryptedPayload', type: 'bytes' },
+          { name: 'payloadHash', type: 'bytes32' },
+          { name: 'timestamp', type: 'uint256' },
+          { name: 'isSuccess', type: 'bool' },
+          { name: 'tool', type: 'string' },
+          { name: 'errorType', type: 'string' },
+        ],
+      },
+    ],
+    stateMutability: 'view',
+  },
+] as const satisfies Abi;
+
+/**
+ * Audit Contract Query Functions Integration Tests (Story #12, #13)
+ *
+ * NOTE: These tests require:
+ * 1. Hardhat node running: pnpm contracts:dev
+ * 2. Contracts deployed: pnpm contracts:deploy:local
+ * 3. Environment variables set: AUDIT_CONTRACT_ADDRESS
+ *
+ * To run these tests:
+ * pnpm contracts:dev &  # Start Hardhat in background
+ * pnpm contracts:deploy:local
+ * pnpm test tests/audit/test_query_functions.ts
+ */
+describe.skip('Audit Contract Query Functions (Stories #12, #13)', () => {
+  let publicClient;
+  let walletClient;
+  let auditAddress: `0x${string}`;
+
+  beforeEach(() => {
+    publicClient = createPublicClient({ transport: http(RPC_URL) });
+    walletClient = createWalletClient({
+      account: ACCOUNT_0,
+      transport: http(RPC_URL),
+    });
+    auditAddress = AUDIT_ADDRESS as `0x${string}`;
+  });
+
+  describe('getEntriesByAgent', () => {
+    it('should return entries for a specific agent', async () => {
+      const agent = ACCOUNT_1.address;
+      const tool = 'github';
+      const errorType = '';
+      const payloadHash = keccak256('0x' + Buffer.from('test_payload').toString('hex') as `0x${string}`);
+
+      // Record 3 entries for this agent
+      for (let i = 0; i < 3; i++) {
+        const payload = Buffer.from(JSON.stringify({ test: i }));
+        await walletClient.writeContract({
+          address: auditAddress,
+          abi: AUDIT_ABI,
+          functionName: 'recordEntry',
+          args: [agent, payload, payloadHash, true, tool, errorType],
+        });
+      }
+
+      // Query agent entries with pagination
+      const result = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntriesByAgent',
+        args: [agent, 0n, 10n],
+      })) as unknown[];
+
+      expect(result).toHaveLength(3);
+      expect((result as any[]).every((e) => e.agent === agent)).toBe(true);
+    });
+
+    it('should respect pagination offset and limit', async () => {
+      const agent = ACCOUNT_0.address;
+      const tool = 'slack';
+
+      // Record 5 entries
+      for (let i = 0; i < 5; i++) {
+        const payload = Buffer.from(JSON.stringify({ test: i }));
+        const payloadHash = keccak256(('0x' + Buffer.from(`test_${i}`).toString('hex')) as `0x${string}`);
+        await walletClient.writeContract({
+          address: auditAddress,
+          abi: AUDIT_ABI,
+          functionName: 'recordEntry',
+          args: [agent, payload, payloadHash, true, tool, ''],
+        });
+      }
+
+      // Query with offset=2, limit=2
+      const result = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntriesByAgent',
+        args: [agent, 2n, 2n],
+      })) as unknown[];
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('should return empty array if agent has no entries', async () => {
+      const agent = '0xdead000000000000000000000000000000000000' as `0x${string}`;
+
+      const result = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntriesByAgent',
+        args: [agent, 0n, 10n],
+      })) as unknown[];
+
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('getEntriesByTool', () => {
+    it('should return entries for a specific tool', async () => {
+      const tool = 'openai';
+      const agents = [ACCOUNT_0.address, ACCOUNT_1.address];
+
+      // Record entries for different agents but same tool
+      for (const agent of agents) {
+        const payload = Buffer.from(JSON.stringify({ agent }));
+        const payloadHash = keccak256(('0x' + Buffer.from(agent).toString('hex')) as `0x${string}`);
+        await walletClient.writeContract({
+          address: auditAddress,
+          abi: AUDIT_ABI,
+          functionName: 'recordEntry',
+          args: [agent, payload, payloadHash, true, tool, ''],
+        });
+      }
+
+      // Query tool entries
+      const result = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntriesByTool',
+        args: [tool, 0n, 10n],
+      })) as unknown[];
+
+      expect(result.length).toBeGreaterThanOrEqual(agents.length);
+      expect((result as any[]).every((e) => e.tool === tool)).toBe(true);
+    });
+  });
+
+  describe('getEntriesByTimeRange', () => {
+    it('should return entries within time range', async () => {
+      const agent = ACCOUNT_0.address;
+      const tool = 'test-tool';
+
+      // Record an entry (timestamp is set by block.timestamp)
+      const payload = Buffer.from(JSON.stringify({ test: 'data' }));
+      const payloadHash = keccak256('0x' + Buffer.from('test').toString('hex') as `0x${string}`);
+      await walletClient.writeContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'recordEntry',
+        args: [agent, payload, payloadHash, true, tool, ''],
+      });
+
+      const now = Math.floor(Date.now() / 1000);
+
+      // Query entries in range (past hour to future)
+      const result = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntriesByTimeRange',
+        args: [BigInt(now - 3600), BigInt(now + 3600), 0n, 100n],
+      })) as unknown[];
+
+      expect(result.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should return empty array if no entries in range', async () => {
+      const now = Math.floor(Date.now() / 1000);
+
+      // Query far future range
+      const result = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntriesByTimeRange',
+        args: [BigInt(now + 10000), BigInt(now + 20000), 0n, 100n],
+      })) as unknown[];
+
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('Count functions', () => {
+    it('getAgentEntryCount should return correct count', async () => {
+      const agent = '0xcafe000000000000000000000000000000000000' as `0x${string}`;
+      const tool = 'count-test';
+
+      // Record 5 entries
+      for (let i = 0; i < 5; i++) {
+        const payload = Buffer.from(JSON.stringify({ test: i }));
+        const payloadHash = keccak256(('0x' + Buffer.from(`count_${i}`).toString('hex')) as `0x${string}`);
+        await walletClient.writeContract({
+          address: auditAddress,
+          abi: AUDIT_ABI,
+          functionName: 'recordEntry',
+          args: [agent, payload, payloadHash, true, tool, ''],
+        });
+      }
+
+      const count = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getAgentEntryCount',
+        args: [agent],
+      })) as unknown;
+
+      expect(Number(count)).toBeGreaterThanOrEqual(5);
+    });
+
+    it('getEntryCount should return total count', async () => {
+      const initialCount = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntryCount',
+        args: [],
+      })) as unknown;
+
+      const agent = ACCOUNT_0.address;
+      const tool = 'total-count-test';
+      const payload = Buffer.from(JSON.stringify({ test: 'data' }));
+      const payloadHash = keccak256('0x' + Buffer.from('total_test').toString('hex') as `0x${string}`);
+
+      // Record 2 more entries
+      for (let i = 0; i < 2; i++) {
+        await walletClient.writeContract({
+          address: auditAddress,
+          abi: AUDIT_ABI,
+          functionName: 'recordEntry',
+          args: [agent, payload, payloadHash, true, tool, ''],
+        });
+      }
+
+      const newCount = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntryCount',
+        args: [],
+      })) as unknown;
+
+      expect(Number(newCount)).toBeGreaterThan(Number(initialCount));
+    });
+  });
+
+  describe('Pagination safety', () => {
+    it('should reject limit > 100', async () => {
+      const agent = ACCOUNT_0.address;
+
+      try {
+        await publicClient.readContract({
+          address: auditAddress,
+          abi: AUDIT_ABI,
+          functionName: 'getEntriesByAgent',
+          args: [agent, 0n, 101n], // limit > 100
+        });
+        expect.fail('Should have thrown');
+      } catch (error) {
+        expect(String(error)).toMatch(/Limit must be/i);
+      }
+    });
+
+    it('should handle offset beyond array length gracefully', async () => {
+      const agent = ACCOUNT_0.address;
+
+      // Query with offset beyond length
+      const result = (await publicClient.readContract({
+        address: auditAddress,
+        abi: AUDIT_ABI,
+        functionName: 'getEntriesByAgent',
+        args: [agent, 100n, 10n],
+      })) as unknown[];
+
+      expect(result).toHaveLength(0);
+    });
+  });
+});

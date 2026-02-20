@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "contracts:build": "hardhat compile",
+    "contracts:build": "hardhat compile && echo && echo '✓ Compiled contracts created in artifacts/:' && ls -1 artifacts/contracts/*/",
     "contracts:test": "hardhat test",
     "contracts:dev": "hardhat node",
     "contracts:deploy:local": "hardhat ignition deploy ignition/modules/Zuul.ts --network localhost",

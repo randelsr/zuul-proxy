@@ -56,12 +56,20 @@ Start here:
 - **[Quick Start](./QUICKSTART.md)** — Get Zuul running in 5 minutes (recommended for new users)
 - **[Demo Setup](./DEMO_SETUP.md)** — Step-by-step guide to running the demo agent (4 terminals)
 
+## Documentation Portal
+
+**New to Zuul?** Start with **[GETTING_STARTED.md](./GETTING_STARTED.md)** — Complete guide with learning paths for different roles
+
 Then explore:
 - **[Agent Setup](./docs/agents.md)** — Registering test agents on-chain and managing roles
 - **[Architecture](./docs/architecture.md)** — System design, module breakdown, trust boundaries
 - **[API Reference](./docs/api.md)** — Endpoint specs, error codes, signature format
 - **[Deployment](./docs/deployment.md)** — Configuration, secrets, multi-chain setup
+- **[Hedera Deployment](./docs/hedera-deployment.md)** — Comprehensive guide to Hedera testnet deployment (recommended)
+- **[Gas Cost Analysis](./docs/gas-cost-analysis.md)** — Hedera vs Base: 100x cheaper for audit logging
+- **[Cost Optimization](./.plans/cost-optimization-analysis.md)** — v1.1 roadmap: 90% cost reduction via batching
 - **[Security](./docs/security.md)** — Threat model, audit trail, key custody
+- **[Hackathon Plan](./docs/ethdenver-hackathon.md)** — ETHDenver 2026 scope and bounty strategy
 
 ## Features
 
@@ -128,6 +136,78 @@ All errors follow JSON-RPC 2.0 format:
 
 [Full error reference](./docs/api.md#error-codes)
 
+## Admin Operations
+
+After Zuul is running, admins can use localhost-only endpoints to manage access and inspect audit logs.
+
+### Emergency Revoke Agent
+
+Immediately block a compromised agent:
+
+```bash
+curl -X POST http://localhost:8080/admin/rbac/revoke \
+  -H 'Content-Type: application/json' \
+  -d '{"agent_address": "0x1234567890123456789012345678901234567890"}'
+```
+
+**Response:**
+```json
+{
+  "message": "Agent revoked successfully",
+  "agent_address": "0x1234567890123456789012345678901234567890",
+  "tx_hash": "0xDEF123..."
+}
+```
+
+### Query Audit Logs
+
+Search for audit entries by agent, tool, or time range:
+
+```bash
+# By agent
+curl 'http://localhost:8080/admin/audit/search?agent=0x1234567890123456789012345678901234567890&limit=10'
+
+# By tool
+curl 'http://localhost:8080/admin/audit/search?tool=github&limit=5'
+
+# By time range (last hour)
+HOUR_AGO=$(($(date +%s) - 3600))
+curl "http://localhost:8080/admin/audit/search?startTime=$HOUR_AGO&endTime=$(date +%s)&limit=10"
+
+# With decryption
+curl 'http://localhost:8080/admin/audit/search?agent=0x1234...&decrypt=true&limit=5'
+```
+
+**Response (with decryption):**
+```json
+{
+  "query": { "agent": "0x1234...", "decrypt": true, ... },
+  "count": 3,
+  "entries": [
+    {
+      "agent": "0x1234...",
+      "timestamp": 1740000000,
+      "tool": "github",
+      "isSuccess": true,
+      "payload": {
+        "action": "read",
+        "endpoint": "/repos/owner/repo/issues",
+        "status": 200,
+        "latencyMs": 142
+      }
+    }
+  ]
+}
+```
+
+**Important:**
+- Admin endpoints are **localhost-only** (127.0.0.1, localhost, ::1)
+- At least one filter (agent, tool, or time range) must be specified
+- Pagination: default limit 50, max 100
+- Decryption requires `decrypt=true` parameter
+
+See [docs/api.md](./docs/api.md#admin-endpoints-localhost-only) for full admin API reference.
+
 ## Development
 
 ```bash
@@ -149,7 +229,7 @@ pnpm test:coverage
 # Build
 pnpm build
 
-# Demo
+# Demo (all 14 user stories)
 pnpm demo
 ```
 

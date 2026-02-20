@@ -203,6 +203,19 @@ docker push myusername/zuul-proxy:latest
 
 Deploy Zuul Proxy and smart contracts to Hedera Testnet (chainId 295) for cloud testing.
 
+**→ See [Hedera Deployment Guide](./hedera-deployment.md) for comprehensive configuration and step-by-step instructions.**
+
+### Quick Reference
+
+| Aspect | Value |
+|--------|-------|
+| **Network** | Hedera Testnet |
+| **Chain ID** | 295 |
+| **RPC URL** | https://testnet.hashio.io/api |
+| **Explorer** | https://testnet.hashscan.io |
+| **Cost** | $0.003-0.005 per write (100x cheaper than Base) |
+| **Throughput** | 10,000+ TPS |
+
 ### Prerequisites
 
 1. **Hedera testnet account** — Create at https://portal.hedera.com/register

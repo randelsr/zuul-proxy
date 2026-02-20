@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { KeyCustodyDriver } from '../../custody/driver.js';
 import type { ProxyExecutor, ForwardRequest } from '../../proxy/executor.js';
-import type { AgentAddress, ToolKey, PermissionAction } from '../../types.js';
+import type { AgentAddress, ToolKey, PermissionAction, ChainId } from '../../types.js';
 import { getLogger } from '../../logging.js';
 
 const logger = getLogger('handlers:forward');

@@ -158,7 +158,7 @@ export function signatureMiddleware(
 
       logger.info({ requestId, agent: verifyResult.value }, 'Signature verified');
 
-      await next();
+      return await next();
     } catch (error) {
       logger.error({ requestId, error: String(error) }, 'Signature middleware error');
 

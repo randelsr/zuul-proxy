@@ -44,6 +44,8 @@ export type ChainConfig = Readonly<{
   name: 'hedera' | 'base' | 'arbitrum' | 'optimism' | 'local';
   chainId: number;
   rpcUrl: string;
+  rbacContractAddress: string;
+  auditContractAddress: string;
 }>;
 
 /**

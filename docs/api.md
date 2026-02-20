@@ -598,6 +598,211 @@ curl -X GET "http://localhost:8080/forward/https://api.github.com/repos/owner/re
 
 ---
 
+## Admin Endpoints (Localhost-Only)
+
+Admin endpoints are **restricted to localhost** (127.0.0.1, localhost, ::1) for security in MVP. No authentication required when accessed locally.
+
+### `GET /admin/audit/search`
+
+Query audit logs with optional decryption.
+
+**Query Parameters:**
+- `agent` (optional, string) — Filter by agent wallet address
+- `tool` (optional, string) — Filter by tool key
+- `startTime` (optional, number) — Unix timestamp (start, inclusive)
+- `endTime` (optional, number) — Unix timestamp (end, inclusive)
+- `offset` (optional, number, default 0) — Pagination offset
+- `limit` (optional, number, default 50, max 100) — Results per page
+- `decrypt` (optional, boolean, default false) — Decrypt payloads?
+
+**Validation Rules:**
+- At least one filter (agent, tool, or time range) must be provided
+- `offset >= 0`
+- `1 <= limit <= 100`
+- `startTime <= endTime` (if both provided)
+- All timestamps must be non-negative
+
+**Request Examples:**
+```bash
+# Query by agent
+curl "http://localhost:8080/admin/audit/search?agent=0x1234567890123456789012345678901234567890&limit=10"
+
+# Query by tool
+curl "http://localhost:8080/admin/audit/search?tool=github&limit=5"
+
+# Query by time range
+curl "http://localhost:8080/admin/audit/search?startTime=1740000000&endTime=1740086400&limit=10"
+
+# Query with decryption
+curl "http://localhost:8080/admin/audit/search?agent=0x1234...&decrypt=true&limit=10"
+```
+
+**Response (Success):**
+```json
+{
+  "query": {
+    "agent": "0x1234567890123456789012345678901234567890",
+    "offset": 0,
+    "limit": 10,
+    "decrypt": false
+  },
+  "count": 3,
+  "entries": [
+    {
+      "agent": "0x1234567890123456789012345678901234567890",
+      "timestamp": 1740000000,
+      "isSuccess": true,
+      "tool": "github",
+      "errorType": "",
+      "payloadHash": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "encryptedPayload": "0x4a2f8b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a"
+    }
+  ],
+  "_governance": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": 1740000000
+  }
+}
+```
+
+**Response (With Decryption):**
+```json
+{
+  "query": {
+    "agent": "0x1234567890123456789012345678901234567890",
+    "offset": 0,
+    "limit": 10,
+    "decrypt": true
+  },
+  "count": 3,
+  "entries": [
+    {
+      "agent": "0x1234567890123456789012345678901234567890",
+      "timestamp": 1740000000,
+      "isSuccess": true,
+      "tool": "github",
+      "errorType": "",
+      "payloadHash": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "payload": {
+        "action": "read",
+        "endpoint": "/repos/owner/repo/issues",
+        "status": 200,
+        "latencyMs": 142
+      }
+    }
+  ],
+  "_governance": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": 1740000000
+  }
+}
+```
+
+**Error Response (No Filter):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": null,
+  "error": {
+    "code": -32600,
+    "message": "At least one filter required: agent, tool, or time range",
+    "data": {
+      "error_type": "request/invalid_params"
+    }
+  },
+  "_governance": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "error_type": "request/invalid_params",
+    "timestamp": 1740000000
+  }
+}
+```
+
+**Error Response (Non-Localhost):**
+```json
+{
+  "error": "Admin endpoints only accessible from localhost",
+  "_governance": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "error_type": "auth/localhost_only",
+    "timestamp": 1740000000
+  }
+}
+```
+
+**HTTP Status Codes:**
+- **200** — Query successful
+- **400** — Invalid parameters
+- **403** — Non-localhost access (security)
+- **503** — Blockchain unavailable
+
+---
+
+### `POST /admin/rbac/revoke`
+
+Emergency revoke an agent's access.
+
+**Request Body:**
+```json
+{
+  "agent_address": "0x1234567890123456789012345678901234567890"
+}
+```
+
+**Request Example:**
+```bash
+curl -X POST http://localhost:8080/admin/rbac/revoke \
+  -H 'Content-Type: application/json' \
+  -d '{"agent_address": "0x1234567890123456789012345678901234567890"}'
+```
+
+**Response (Success):**
+```json
+{
+  "message": "Agent revoked successfully",
+  "agent_address": "0x1234567890123456789012345678901234567890",
+  "tx_hash": "0xDEF123456789abcdefDEF123456789abcdefDEF",
+  "_governance": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp": 1740000000
+  }
+}
+```
+
+**Error Response (Invalid Address):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": null,
+  "error": {
+    "code": -32600,
+    "message": "Invalid agent address format",
+    "data": {
+      "agent_address": "not-an-address"
+    }
+  },
+  "_governance": {
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "error_type": "request/invalid_params",
+    "timestamp": 1740000000
+  }
+}
+```
+
+**HTTP Status Codes:**
+- **200** — Revocation successful
+- **400** — Invalid parameters (missing address, wrong format)
+- **403** — Non-localhost access (security)
+- **503** — Blockchain unavailable
+
+**Important:**
+- Revocation is permanent: agent can no longer access any tools
+- Takes effect immediately on-chain (block confirmation within seconds on Hedera)
+- All agents in the same role are unaffected
+- Revocation can be verified via `GET /rpc` with `tools/list` (agent will have no tools)
+
+---
+
 ## MVP Limitations
 
 1. **HTTP-only** — WebSocket, gRPC, SSH not supported

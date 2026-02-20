@@ -603,6 +603,90 @@ AUDIT_ENCRYPTION_KEY=<32-byte-key>
 
 **Hackathon strategy:** Demo on Hedera (bounty alignment). Pitch multi-chain portability as differentiation. "Deploy once, govern everywhere."
 
+### Multi-Tenancy & Contract Isolation (Decided 2026-02-20)
+
+**Architecture:** Each admin/organization deploys their own RBAC and Audit contracts.
+
+**Per-Admin Deployment:**
+```
+Organization A                          Organization B
+Zuul Proxy Instance                     Zuul Proxy Instance
+  .env:                                   .env:
+  RBAC=0xAAAA1111...                     RBAC=0xCCCC3333...
+  AUDIT=0xBBBB2222...                    AUDIT=0xDDDD4444...
+
+  Agents: AgentA1, A2                    Agents: AgentB1, B2
+            ↓                                      ↓
+         Blockchain (Hedera, Base, etc.)
+         ┌──────────────────┐  ┌──────────────────┐
+         │ RBAC (0xAAAA...) │  │ RBAC (0xCCCC...) │
+         │ Org A's roles    │  │ Org B's roles    │
+         └──────────────────┘  └──────────────────┘
+         ┌──────────────────┐  ┌──────────────────┐
+         │Audit (0xBBBB...) │  │Audit (0xDDDD...) │
+         │ Org A's logs     │  │ Org B's logs     │
+         └──────────────────┘  └──────────────────┘
+```
+
+**Key Properties:**
+
+| Aspect | Behavior |
+|--------|----------|
+| **Isolation** | Complete. Org A's agents can't access Org B's contracts. |
+| **Permissions** | Each org manages their own RBAC contract and role definitions. |
+| **Audit Logs** | Each org has encrypted audit logs only they can decrypt. |
+| **Deployment Cost** | Per org: ~$2 one-time (RBAC $1 + Audit $1) |
+| **Scalability** | 100 orgs = 100 RBAC contracts + 100 Audit contracts |
+
+**Deployment Pattern:**
+
+```bash
+# Org A admin:
+pnpm hardhat ignition deploy ignition/modules/Zuul.ts --network hederaTestnet
+# Creates: RBAC (0xAAAA...), Audit (0xBBBB...)
+
+# Org B admin (independent):
+pnpm hardhat ignition deploy ignition/modules/Zuul.ts --network hederaTestnet
+# Creates: RBAC (0xCCCC...), Audit (0xDDDD...)
+# No conflict, no shared state
+```
+
+**Why This Design (vs Shared Contracts):**
+
+| Aspect | Per-Org Contracts | Shared Contracts |
+|--------|---|---|
+| **Complexity** | Simple (no access control in contract) | Complex (need org→agent filtering) |
+| **Isolation** | Natural (separate contracts) | Requires careful filtering logic |
+| **Cost per query** | O(1) — direct agent lookup | O(n) — must filter by org |
+| **Auditability** | Each org entirely self-contained | Requires cross-org auditing |
+| **Future multi-chain** | Each org picks their chain | Harder to coordinate across chains |
+
+**MVP Decision:** Per-org contracts (simpler, more reliable).
+
+**Stretch Goal (v2.0):** Optional shared contracts with org-scoped access control for cost optimization at scale (100+ organizations).
+
+---
+
+## Multi-Tenant Use Cases (Post-Hackathon)
+
+**SaaS Platform:**
+- LangChain Cloud hosts Zuul proxy for 1000+ customers
+- Each customer gets isolated RBAC + Audit contracts
+- Dashboard shows customer their agents, audit logs, cost
+- No customer data crosses to another customer
+
+**Enterprise Multi-Division:**
+- Finance division: own RBAC + Audit contracts on Hedera
+- Engineering division: own RBAC + Audit contracts on Base
+- Each division sees only their agents, pays their own costs
+- Each division on their chosen chain
+
+**Agent Platform:**
+- API gateway exposes Zuul as service to AI companies
+- Each AI company registers their agents in their own RBAC contract
+- Billing is per-organization (cost is transparent)
+- No sharing of audit logs across organizations
+
 ### Enforcement Model
 
 **Key Insight:** Custody IS enforcement — agents can't leak keys they don't have. But custody only covers keyed services. Full governance requires network control.
@@ -874,11 +958,99 @@ Governance, audit, key custody is the **value** (what we do that others don't).
 
 **TODO:** Finalize positioning language. "MCP gateway" is accurate but may not be the lead. Consider leading with problem/value, MCP as implementation detail.
 
+### Cost Economics & Optimization Roadmap
+
+**MVP Baseline (Current):**
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **Cost per audit write** | $0.003-0.005 USD | Fixed on Hedera (not variable like EVM) |
+| **Monthly (10k entries/day)** | $1,200-1,500 | $0 for reads (free on Hedera view functions) |
+| **Monthly storage growth** | 300 MB | Unbounded without pruning |
+| **Query latency (by agent)** | <100ms | O(1) index lookup |
+| **Query latency (by time range)** | Variable | O(n) sequential scan |
+
+**Key Finding:** Current MVP stores full encrypted payloads on-chain. This is simple but expensive at scale.
+
+**Fundamental Optimizations Available (v1.1):**
+
+| Optimization | Cost Reduction | Storage Reduction | Latency Impact | Complexity |
+|---|---|---|---|---|
+| **Batch Saving** (10 entries/tx) | 90% → $120-150/mo | None | +5s (acceptable) | Low (2-3 days) |
+| **Event-Only Model** (metadata on-chain, payloads in events) | 0% but cheaper | 85% → 45 MB/mo | O(n) → O(1) via indexer | Medium (5-7 days) |
+| **Combined (Batch + Events)** | 90% cost, 85% storage | 85% → 45 MB/mo | <5s via off-chain indexer | Medium (5-7 days) |
+| **Merkle Tree Rollup** (v2.0+) | 99% → $5-10/mo | 95% (off-chain storage) | ~24s | High (3-4 weeks) |
+
+**v1.1 Recommendation: Batch + Events**
+- Cost: $120-150/month (90% reduction from MVP)
+- Storage: 45 MB/month (85% reduction from MVP)
+- Latency: <5 seconds P95 (acceptable for audit logs)
+- Implementation: Use The Graph Protocol for off-chain event indexing (free tier available)
+- ROI: Saves $12.6M over 10 years vs MVP baseline
+
+**Detailed Analysis:**
+
+*Current Architecture Problem:*
+```
+Each audit entry = 1 blockchain transaction
+10,000 entries/day = 10,000 transactions = $40/day
+70-85% of gas is transaction overhead, only 15-30% is actual data
+```
+
+*Batch Optimization (10 entries/tx):*
+```
+10,000 entries/day ÷ 10 = 1,000 transactions = $4/day
+Same data written, 90% fewer transactions
+Trades off 5s latency for 10x cost reduction
+```
+
+*Event-Only Optimization:*
+```
+Current: 1000 bytes per entry on-chain
+Proposed: 150 bytes metadata on-chain + encrypted payload in event log
+Query via off-chain indexer (The Graph, Covalent, Alchemy)
+Result: Bounded state growth, faster queries, minimal cost difference
+```
+
+**Cost Comparison Over Time:**
+
+| Scenario | Year 1 | Year 5 | Year 10 |
+|----------|--------|--------|---------|
+| MVP (current) | $16k | $72k | $144k |
+| MVP + v1.1 Batch | $1.6k | $7.2k | $14.4k |
+| MVP + v1.1 Batch+Events | $1.6k | $7.2k | $14.4k |
+| MVP + v2.0 Merkle | $0.3k | $1.5k | $3k |
+
+**Recommendation Timeline:**
+- **MVP (Hackathon):** Ship current implementation. Cost is acceptable at demo scale (100s of entries/day).
+- **v1.1 (Post-hackathon, 2-4 weeks):** Implement batch saving + events before production deployment.
+- **v2.0 (Q3 2026):** Add Merkle rollup if audit volume scales to millions of entries/month.
+
+**Storage Scaling Reality:**
+
+Current on-chain storage growth:
+- 300 MB/month = 3.6 GB/year
+- At 5 years: 18 GB contract state
+- Query performance degrades as contract state grows (getEntriesByTimeRange becomes O(n) scan)
+
+Event-only model:
+- 45 MB/month = 540 MB/year
+- At 5 years: 2.7 GB event logs (immutable, stored by validators/indexers)
+- Query via off-chain indexer (constant time regardless of data volume)
+
+**See `.plans/cost-optimization-analysis.md` for detailed technical breakdown, implementation checklists, and architectural trade-offs.**
+
 ### Business Model (post-hackathon)
-- Per-request pricing ($0.001/call, OpenRouter style)
-- Subscription per agent seat
-- Protocol fee on audit log writes
-- Enterprise self-hosted license
+- Per-request pricing ($0.001/call, OpenRouter style) — covered by batching savings
+- Subscription per agent seat ($50-500/month depending on volume)
+- Protocol fee on audit log writes (0.0001 HBAR per entry post-batching)
+- Enterprise self-hosted license (fixed annual fee)
+
+**Pricing informed by cost analysis:**
+- MVP cost at 10k entries/day = $1,200-1,500/month
+- At v1.1 optimization = $120-150/month
+- Can offer entry tier at $99/month (profitable below 100k entries/day)
+- Can offer pro tier at $499/month (includes archival, historical queries, custom retention)
 
 ### Use Cases
 - Enterprise AI deployment (SOC2, HIPAA compliance)

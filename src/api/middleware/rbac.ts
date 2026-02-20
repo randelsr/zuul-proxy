@@ -215,7 +215,7 @@ export function rbacMiddleware(
         'RBAC check passed'
       );
 
-      await next();
+      return await next();
     } catch (error) {
       logger.error({ requestId, error: String(error) }, 'RBAC middleware error');
 

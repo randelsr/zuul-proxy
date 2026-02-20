@@ -60,6 +60,8 @@ chain:
   name: hedera
   chainId: 295
   rpcUrl: ${HEDERA_RPC_URL}
+  rbacContractAddress: ${RBAC_CONTRACT_ADDRESS}
+  auditContractAddress: ${AUDIT_CONTRACT_ADDRESS}
 
 # Cache settings
 cache:

@@ -6,7 +6,7 @@ import { LocalChainDriver } from '../../src/chain/local.js';
 import { createChainDriver } from '../../src/chain/factory.js';
 import type { AgentAddress, RoleId } from '../../src/types.js';
 import type { AppConfig } from '../../src/config/types.js';
-import { keccak256 } from 'viem';
+import { keccak256, toHex } from 'viem';
 
 const mockAbi: Abi = [] as const;
 
@@ -409,9 +409,8 @@ describe('Chain Drivers', () => {
       const agent = '0xABCD1234567890123456789012345678ABCD1234' as AgentAddress;
 
       // Mock contract response: role hash for "developer" + isActive=true
-      const roleIdHash = keccak256(
-        `0x${Buffer.from('developer', 'utf-8').toString('hex')}`
-      );
+      // Use same hashing method as getRoleForAgent: keccak256(toHex(role.id, { size: 32 }))
+      const roleIdHash = keccak256(toHex('developer', { size: 32 }));
       mockPublicClient.readContract.mockResolvedValue([roleIdHash, true]);
 
       const role = await driver.getRoleForAgent(agent);

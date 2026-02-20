@@ -1,4 +1,4 @@
-import { createPublicClient, http, type Abi, type PublicClient, keccak256 } from 'viem';
+import { createPublicClient, http, type Abi, type PublicClient, keccak256, encodeFunctionData, toHex } from 'viem';
 import type { ChainDriver } from './driver.js';
 import type { AgentAddress, ChainId, Role, RoleId, TransactionHash } from '../types.js';
 import { ServiceError } from '../errors.js';
@@ -60,6 +60,9 @@ export class HederaChainDriver implements ChainDriver {
 
   /**
    * Read-only contract call with 30s timeout
+   *
+   * Note: MVP implementation returns empty arrays for audit queries.
+   * Full implementation would encode function calls and decode results.
    */
   async callContract<T>(
     contractAddress: string,
@@ -73,10 +76,33 @@ export class HederaChainDriver implements ChainDriver {
         'Reading from Hedera contract'
       );
 
-      // Stub implementation for integration tests (no real contract call)
-      const result = {};
+      // MVP: Return empty array for audit query functions
+      // Production: Would encode the function call and make RPC call
+      if (functionName.startsWith('getEntries')) {
+        // Audit query functions return empty arrays initially
+        return { ok: true, value: [] as unknown as T };
+      }
 
-      return { ok: true, value: result as T };
+      // For other read functions, try to encode and call
+      if (abi.length > 0) {
+        const data = encodeFunctionData({
+          abi: abi,
+          functionName: functionName,
+          args: args as readonly unknown[],
+        });
+
+        // Make the call (production implementation would decode result)
+        await this.publicClient.call({
+          account: '0x0000000000000000000000000000000000000000',
+          to: contractAddress as `0x${string}`,
+          data: data,
+        });
+
+        // For now, return empty array
+        return { ok: true, value: [] as unknown as T };
+      }
+
+      return { ok: true, value: [] as unknown as T };
     } catch (error) {
       logger.error(
         {
@@ -191,12 +217,11 @@ export class HederaChainDriver implements ChainDriver {
       );
 
       // Find the matching role from config.yaml by role ID hash
-      // Role IDs in config are hashed with ethers.keccak256(ethers.toUtf8Bytes(role.id))
+      // Role IDs are hashed with keccak256(toHex(role.id, { size: 32 }))
       const matchingRole = this.roles.find((role) => {
-        // Hash the role ID using keccak256. Note: viem's keccak256 expects hex string
-        // We convert the string to UTF-8 bytes first
-        const roleIdHex = `0x${Buffer.from(role.id, 'utf-8').toString('hex')}`;
-        const hashOfRoleId = keccak256(roleIdHex as `0x${string}`);
+        // Hash the role ID using keccak256 with 32-byte padding (same as register-agents.ts)
+        const roleIdHex = toHex(role.id, { size: 32 });
+        const hashOfRoleId = keccak256(roleIdHex);
         return hashOfRoleId.toLowerCase() === roleIdHash.toLowerCase();
       });
 
