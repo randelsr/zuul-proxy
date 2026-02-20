@@ -225,19 +225,34 @@ export async function runDemoScenario(): Promise<void> {
       console.log(`\n[6.3] Verify agent capabilities AFTER revocation`);
 
       if (revokeResp.status === 200) {
-        // If revocation succeeded, check tool discovery
+        // If revocation succeeded, query tools/list endpoint to verify revocation
         try {
-          const toolsAfterRevoke = await agent.discoverTools();
-          const toolCount = Object.keys(toolsAfterRevoke).length;
+          const toolsAfterRevoke = await fetch(`${proxyUrl}/rpc`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'tools/list',
+              params: { agent_address: revokeAgentAddress },
+              id: 'tools-after-revoke',
+            }),
+          });
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const toolsData = (await toolsAfterRevoke.json()) as any;
+          const toolCount = toolsData.result?.tools?.length || 0;
+
+          console.log(`✓ Agent capabilities after revocation:`);
+          console.log(`  Tools available: ${toolCount}`);
 
           if (toolCount === 0) {
-            console.log('✓ Agent now sees ZERO tools (revocation effective)');
+            console.log(`  ✅ Revocation EFFECTIVE: Agent sees zero tools (fail-closed)`);
           } else {
-            console.log(`ℹ Agent still has ${toolCount} tools (revocation may not have taken effect yet)`);
-            console.log('  (This can happen if permission cache hasn\'t expired)');
+            console.log(`  ⚠️  Agent still has ${toolCount} tools`);
+            console.log('  (Cache TTL may not have expired yet)');
           }
         } catch (error) {
-          console.log(`ℹ Could not check tool discovery: ${String(error)}`);
+          console.log(`ℹ Could not check capabilities: ${String(error)}`);
         }
       } else {
         // Revocation failed, try to make a tool call with test headers to check revocation
