@@ -172,7 +172,14 @@ export class HederaChainDriver implements ChainDriver {
   ): Promise<Result<TransactionHash, ServiceError>> {
     try {
       logger.debug(
-        { contractAddress, functionName, chainId: this.chainId, walletClientAvailable: !!this.walletClient },
+        {
+          contractAddress,
+          functionName,
+          chainId: this.chainId,
+          walletClientAvailable: !!this.walletClient,
+          argsCount: args.length,
+          argsTypes: args.map((a) => typeof a),
+        },
         'Writing to Hedera contract'
       );
 
@@ -193,12 +200,25 @@ export class HederaChainDriver implements ChainDriver {
 
       // Submit actual transaction using wallet client
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const txHash = await (this.walletClient as any).writeContract({
+      const callConfig = {
         address: contractAddress as `0x${string}`,
         abi: abi,
         functionName: functionName,
         args: args as readonly unknown[],
-      });
+      };
+
+      logger.debug(
+        {
+          address: callConfig.address,
+          functionName: callConfig.functionName,
+          argsJson: JSON.stringify(callConfig.args),
+          abiLength: abi.length,
+          abiJson: JSON.stringify(abi.slice(0, 2)),
+        },
+        'About to call writeContract with'
+      );
+
+      const txHash = await (this.walletClient as any).writeContract(callConfig);
 
       logger.info({ txHash, contractAddress, functionName }, 'Hedera transaction submitted');
 

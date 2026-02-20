@@ -199,6 +199,14 @@ export function createServer(
         });
       }
 
+      logger.debug(
+        {
+          chainConfig: config.chain,
+          rbacContractAddress: config.chain.rbacContractAddress,
+        },
+        'About to call performEmergencyRevoke'
+      );
+
       const revokeResult = await performEmergencyRevoke(
         agentAddress,
         chainDriver,

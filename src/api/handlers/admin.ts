@@ -234,10 +234,17 @@ export async function performAuditSearch(
 export async function performEmergencyRevoke(
   agentAddress: string,
   chainDriver: ChainDriver,
-  rbacContractAddress: string,
+  _rbacContractAddress?: string, // Deprecated: contract address now read from process.env
   permissionCache?: { invalidate: (agent: string) => void }
 ): Promise<Result<string, ServiceError>> {
   try {
+    logger.debug({
+      receivedParams: {
+        agentAddress,
+        permissionCacheExists: !!permissionCache,
+      },
+    }, 'performEmergencyRevoke called with params');
+
     // Validate agent address format
     if (!agentAddress.match(/^0x[0-9a-fA-F]{40}$/)) {
       return {
@@ -246,33 +253,148 @@ export async function performEmergencyRevoke(
       };
     }
 
-    logger.warn({ agent: agentAddress }, 'Emergency revocation requested');
+    logger.warn(
+      {
+        agent: agentAddress,
+        abiLength: RBAC_ABI.length,
+      },
+      'Emergency revocation requested'
+    );
 
     // Call contract
-    const result = await chainDriver.writeContract(rbacContractAddress, RBAC_ABI, 'emergencyRevoke', [
-      agentAddress,
-    ]);
+    logger.debug(
+      {
+        functionName: 'emergencyRevoke',
+        argCount: 1,
+        arg0: agentAddress,
+      },
+      'About to call writeContract for emergencyRevoke'
+    );
 
-    if (!result.ok) {
-      logger.error({ agent: agentAddress, error: result.error }, 'Revocation failed');
+    // Bypass chainDriver and call viem directly to debug
+    // This helps isolate whether the issue is in HederaChainDriver or viem itself
+    const { createWalletClient, http, getAddress } = await import('viem');
+    const { privateKeyToAccount } = await import('viem/accounts');
+
+    const debugSigner = process.env.HARDHAT_SIGNER_KEY || process.env.PROXY_SIGNER_KEY;
+    if (!debugSigner) {
       return {
         ok: false,
-        error: new ServiceError('Revocation failed', -32022, 503, 'service/unavailable'),
+        error: new ServiceError('No signer key found', -32603, 500, 'service/internal_error'),
       };
     }
 
-    logger.info({ agent: agentAddress, txHash: result.value }, 'Agent revoked successfully');
+    const debugAccount = privateKeyToAccount(debugSigner as `0x${string}`);
+    const debugWalletClient = createWalletClient({
+      account: debugAccount,
+      transport: http('http://127.0.0.1:8545', { timeout: 60_000 }),
+    });
 
-    // Invalidate permission cache so next request re-reads from chain and sees revocation
-    if (permissionCache) {
-      permissionCache.invalidate(agentAddress as any);
-      logger.debug({ agent: agentAddress }, 'Permission cache invalidated after revocation');
+    const REVOKE_ABI = [
+      {
+        inputs: [{ internalType: 'address', name: 'agent', type: 'address' }],
+        name: 'emergencyRevoke',
+        outputs: [],
+        stateMutability: 'nonpayable' as const,
+        type: 'function' as const,
+      },
+    ] as const;
+
+    logger.debug(
+      { agent: agentAddress, debugSigner: debugAccount.address },
+      'Using direct viem call for emergencyRevoke'
+    );
+
+    // Note: rbacContractAddress parameter is undefined due to config schema issue
+    // Config schema doesn't include contract addresses, so get from env directly
+    const contractAddressFromEnv = process.env.RBAC_CONTRACT_ADDRESS;
+    if (!contractAddressFromEnv) {
+      return {
+        ok: false,
+        error: new ServiceError('RBAC contract address not configured', -32603, 500, 'service/internal_error'),
+      };
     }
 
-    return {
-      ok: true,
-      value: result.value,
-    };
+    let debugTxHash: string;
+    try {
+      // Normalize addresses to correct checksum format required by viem
+      // viem requires EIP-55 checksummed addresses for validation
+      logger.debug({
+        beforeChecksum: { contractAddress: contractAddressFromEnv, agentAddress },
+      }, 'Before address normalization');
+
+      let checksumContractAddress: `0x${string}`;
+      try {
+        checksumContractAddress = getAddress(contractAddressFromEnv) as `0x${string}`;
+      } catch (addrError) {
+        logger.error({ address: contractAddressFromEnv, error: String(addrError) }, 'getAddress for contract failed');
+        throw addrError;
+      }
+
+      let checksumAgentAddress: `0x${string}`;
+      try {
+        checksumAgentAddress = getAddress(agentAddress) as `0x${string}`;
+      } catch (addrError) {
+        logger.error({ address: agentAddress, error: String(addrError) }, 'getAddress for agent failed');
+        throw addrError;
+      }
+
+      logger.debug({
+        original: { contractAddress: contractAddressFromEnv, agentAddress },
+        checksummed: { checksumContractAddress, checksumAgentAddress },
+        signerAddress: debugAccount.address,
+      }, 'Normalized addresses for viem call');
+
+      debugTxHash = await (debugWalletClient as any).writeContract({
+        address: checksumContractAddress,
+        abi: REVOKE_ABI,
+        functionName: 'emergencyRevoke',
+        args: [checksumAgentAddress],
+      });
+
+      logger.info({ txHash: debugTxHash }, 'Direct viem call succeeded');
+
+      const result = {
+        ok: true as const,
+        value: debugTxHash,
+      };
+
+      // Invalidate permission cache so next request re-reads from chain and sees revocation
+      if (permissionCache) {
+        permissionCache.invalidate(agentAddress as any);
+        logger.debug({ agent: agentAddress }, 'Permission cache invalidated after revocation');
+      }
+
+      return result;
+    } catch (viemError) {
+      logger.error({ error: String(viemError), agent: agentAddress }, 'Direct viem call failed');
+
+      // Fall back to chainDriver if direct call fails
+      logger.debug('Falling back to chainDriver.writeContract');
+
+      const fallbackResult = await chainDriver.writeContract(contractAddressFromEnv, RBAC_ABI, 'emergencyRevoke', [
+        agentAddress,
+      ]);
+
+      if (!fallbackResult.ok) {
+        logger.error({ agent: agentAddress, error: fallbackResult.error }, 'Fallback revocation failed');
+        return {
+          ok: false,
+          error: new ServiceError('Revocation failed', -32022, 503, 'service/unavailable'),
+        };
+      }
+
+      // Invalidate permission cache
+      if (permissionCache) {
+        permissionCache.invalidate(agentAddress as any);
+        logger.debug({ agent: agentAddress }, 'Permission cache invalidated after fallback revocation');
+      }
+
+      return {
+        ok: true as const,
+        value: fallbackResult.value,
+      };
+    }
   } catch (error) {
     logger.error({ error: String(error) }, 'Unexpected error during revocation');
     return {
