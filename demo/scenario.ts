@@ -119,7 +119,12 @@ export async function runDemoScenario(): Promise<void> {
       console.log('✓ POST call succeeded (unexpected)');
       ZuulAgent.printGovernance(response.governance);
     } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = error as any;
       console.log(`✓ POST blocked as expected: ${String(error)}`);
+      if (err.governance) {
+        ZuulAgent.printGovernance(err.governance);
+      }
     }
 
     // ========================================================================

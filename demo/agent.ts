@@ -124,7 +124,14 @@ export class ZuulAgent {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const json = (await response.json()) as any;
       const error = json.error || {};
-      throw new Error(`Tool call failed: ${response.status} ${error.code} ${error.message}`);
+
+      // Create custom error with governance metadata attached
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err: any = new Error(`Tool call failed: ${response.status} ${error.code} ${error.message}`);
+      err.governance = json._governance;
+      err.code = error.code;
+      err.httpStatus = response.status;
+      throw err;
     }
 
     // Parse response based on content type
