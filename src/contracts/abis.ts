@@ -4,7 +4,9 @@
  */
 
 /**
- * RBAC contract ABI
+ * RBAC contract ABI - Simple mapping-based design
+ * State: agent address → role ID (keccak256 hash)
+ * Presence in mapping = ACTIVE, Absence = INACTIVE/REVOKED
  */
 export const RBAC_ABI = [
   {
@@ -23,16 +25,6 @@ export const RBAC_ABI = [
       { internalType: 'bytes32', name: 'roleId', type: 'bytes32' },
     ],
     name: 'setAgentRole',
-    outputs: [],
-    stateMutability: 'nonpayable' as const,
-    type: 'function' as const,
-  },
-  {
-    inputs: [
-      { internalType: 'bytes32', name: 'roleId', type: 'bytes32' },
-      { internalType: 'bool', name: 'isActive', type: 'bool' },
-    ],
-    name: 'setRoleStatus',
     outputs: [],
     stateMutability: 'nonpayable' as const,
     type: 'function' as const,

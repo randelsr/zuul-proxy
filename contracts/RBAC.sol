@@ -4,109 +4,81 @@ pragma solidity ^0.8.20;
 /**
  * @title RBAC
  * @dev Role-Based Access Control contract for Zuul Proxy
- * Maps agents to roles for permission management
+ * Simple mapping-based design: if agent IS in agentRoles mapping → ACTIVE
+ * If agent is NOT in mapping (or deleted) → INACTIVE/REVOKED
+ * Transaction history serves as immutable audit trail of state changes
  */
 contract RBAC {
     /**
-     * @dev Stores role information
-     * roleId: keccak256 hash of role name
-     * isActive: whether the role is active
+     * @dev Canonical state: agent address → role ID (keccak256 hash of role name)
+     * Presence in mapping = agent is ACTIVE with that role
+     * Absence from mapping = agent is INACTIVE/REVOKED
      */
     mapping(address agent => bytes32 roleId) public agentRoles;
-    mapping(bytes32 roleId => bool isActive) public activeRoles;
 
     /**
-     * @dev Owner for emergency revocation access control
+     * @dev Proxy address - only authorized actor for state mutations
      */
-    address public owner;
+    address public proxy;
 
     /**
-     * @dev Per-agent revocation mapping for emergency revoke
+     * @dev Emitted when an agent's role is set/updated
      */
-    mapping(address agent => bool isRevoked) public revokedAgents;
+    event RoleSet(address indexed agent, bytes32 indexed roleId, uint256 timestamp);
 
     /**
-     * @dev Emitted when an agent's role is set
-     */
-    event RoleSet(address indexed agent, bytes32 indexed roleId);
-
-    /**
-     * @dev Emitted when a role is activated/deactivated
-     */
-    event RoleStatusChanged(bytes32 indexed roleId, bool isActive);
-
-    /**
-     * @dev Emitted when an agent is emergency revoked
+     * @dev Emitted when an agent is revoked (removed from mapping)
      */
     event AgentRevoked(address indexed agent, uint256 timestamp);
 
     /**
-     * @dev Modifier: restrict to owner only
+     * @dev Modifier: restrict state mutations to proxy only
      */
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can call this");
+    modifier onlyProxy() {
+        require(msg.sender == proxy, "Only proxy can mutate RBAC state");
         _;
     }
 
     /**
-     * @dev Constructor: set deployer as owner
+     * @dev Constructor: set deployer as proxy (typically the Zuul proxy account)
      */
     constructor() {
-        owner = msg.sender;
+        proxy = msg.sender;
     }
 
     /**
-     * @dev Set the role for an agent
+     * @dev Set the role for an agent (proxy only)
+     * This transaction becomes part of the immutable state change history
      * @param agent The agent address
      * @param roleId The keccak256 hash of the role name
      */
-    function setAgentRole(address agent, bytes32 roleId) public {
+    function setAgentRole(address agent, bytes32 roleId) public onlyProxy {
+        require(roleId != bytes32(0), "Role ID cannot be zero");
         agentRoles[agent] = roleId;
-        emit RoleSet(agent, roleId);
+        emit RoleSet(agent, roleId, block.timestamp);
     }
 
     /**
-     * @dev Get the role for an agent
+     * @dev Get the role for an agent (query current state)
      * @param agent The agent address
-     * @return A tuple of (roleId, isActive)
-     * @notice Returns isActive=false if agent is revoked, regardless of role status
+     * @return roleId The agent's current role, or bytes32(0) if inactive
+     * @return isActive True if agent is in mapping (active), false if omitted (revoked)
      */
     function getAgentRole(address agent) public view returns (bytes32, bool) {
-        // If agent is revoked, return inactive regardless of role status
-        if (revokedAgents[agent]) {
-            return (agentRoles[agent], false);
-        }
-
         bytes32 roleId = agentRoles[agent];
-        bool isActive = activeRoles[roleId];
+        bool isActive = roleId != bytes32(0);  // Non-zero = in mapping = active
         return (roleId, isActive);
     }
 
     /**
-     * @dev Set the active status of a role
-     * @param roleId The keccak256 hash of the role name
-     * @param isActive Whether the role is active
-     */
-    function setRoleStatus(bytes32 roleId, bool isActive) public {
-        activeRoles[roleId] = isActive;
-        emit RoleStatusChanged(roleId, isActive);
-    }
-
-    /**
-     * @dev Check if a role is active
-     * @param roleId The keccak256 hash of the role name
-     * @return Whether the role is active
-     */
-    function isRoleActive(bytes32 roleId) public view returns (bool) {
-        return activeRoles[roleId];
-    }
-
-    /**
-     * @dev Emergency revoke an agent (owner only)
+     * @dev Revoke an agent by removing from mapping (proxy only)
+     * The absence of an entry IS the state change (revocation)
+     * Transaction history shows when this revocation occurred
      * @param agent The agent address to revoke
      */
-    function emergencyRevoke(address agent) public onlyOwner {
-        revokedAgents[agent] = true;
+    function emergencyRevoke(address agent) public onlyProxy {
+        require(agentRoles[agent] != bytes32(0), "Agent not active");
+        delete agentRoles[agent];
         emit AgentRevoked(agent, block.timestamp);
     }
 }
