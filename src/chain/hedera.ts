@@ -292,18 +292,7 @@ export class HederaChainDriver implements ChainDriver {
         'Retrieved agent role from Hedera RBAC contract'
       );
 
-      // If not active, return immediately (agent is revoked)
-      if (!isActive) {
-        logger.debug({ agent }, 'Agent is revoked (not in RBAC mapping)');
-        return {
-          id: '0x0' as RoleId,
-          name: 'Revoked',
-          permissions: [],
-          isActive: false,
-        };
-      }
-
-      // Agent is active - find the matching role from config.yaml by role ID hash
+      // Find the matching role from config.yaml by role ID hash
       // Role IDs are hashed with keccak256(toHex(role.id, { size: 32 }))
       const matchingRole = this.roles.find((role) => {
         // Hash the role ID using keccak256 with 32-byte padding (same as register-agents.ts)
@@ -322,14 +311,14 @@ export class HederaChainDriver implements ChainDriver {
           id: roleIdHash as RoleId,
           name: 'Unknown Role',
           permissions: [],
-          isActive: true,
+          isActive,
         };
       }
 
-      // Return the role from config with isActive status from chain
+      // Return the role from config with the isActive status from chain
       return {
         ...matchingRole,
-        isActive: true,
+        isActive,
       };
     } catch (error) {
       logger.error(
