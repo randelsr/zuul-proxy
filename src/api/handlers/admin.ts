@@ -4,15 +4,16 @@ import type { EncryptionService } from '../../audit/encryption.js';
 import type { EncryptedPayload } from '../../types.js';
 import { ServiceError } from '../../errors.js';
 import { getLogger } from '../../logging.js';
+import { AUDIT_ABI, RBAC_ABI } from '../../contracts/abis.js';
 
 const logger = getLogger('api:admin');
 
 /**
  * Query parameters for audit search
+ * Note: tool-based queries removed for privacy (tool is encrypted in payload)
  */
 export type AuditSearchParams = Readonly<{
   agent?: string; // Filter by agent address (0x...)
-  tool?: string; // Filter by tool key
   startTime?: number; // Unix timestamp start (inclusive)
   endTime?: number; // Unix timestamp end (inclusive)
   offset?: number; // Pagination offset (default: 0)
@@ -73,13 +74,11 @@ export function parseAuditSearchParams(queryString: string): Result<AuditSearchP
     }
 
     const agent = params.get('agent');
-    const tool = params.get('tool');
 
     return {
       ok: true,
       value: {
         ...(agent !== null && { agent }),
-        ...(tool !== null && { tool }),
         startTime,
         endTime,
         offset,
@@ -112,7 +111,7 @@ export async function performAuditSearch(
       // Query by agent
       const agentResult = await chainDriver.callContract<unknown>(
         auditContractAddress,
-        [],
+        AUDIT_ABI,
         'getEntriesByAgent',
         [params.agent, BigInt(params.offset || 0), BigInt(params.limit || 50)]
       );
@@ -126,29 +125,11 @@ export async function performAuditSearch(
       }
 
       entries = agentResult.value as readonly unknown[];
-    } else if (params.tool) {
-      // Query by tool
-      const toolResult = await chainDriver.callContract<unknown>(
-        auditContractAddress,
-        [],
-        'getEntriesByTool',
-        [params.tool, BigInt(params.offset || 0), BigInt(params.limit || 50)]
-      );
-
-      if (!toolResult.ok) {
-        logger.error({ tool: params.tool }, 'Failed to query entries by tool');
-        return {
-          ok: false,
-          error: new ServiceError('Blockchain read failed', -32022, 503, 'service/unavailable'),
-        };
-      }
-
-      entries = toolResult.value as readonly unknown[];
     } else if (params.startTime !== undefined && params.endTime !== undefined) {
       // Query by time range
       const timeResult = await chainDriver.callContract<unknown>(
         auditContractAddress,
-        [],
+        AUDIT_ABI,
         'getEntriesByTimeRange',
         [
           BigInt(params.startTime),
@@ -175,7 +156,7 @@ export async function performAuditSearch(
       return {
         ok: false,
         error: new ServiceError(
-          'At least one filter required: agent, tool, or time range',
+          'At least one filter required: agent or time range',
           -32600,
           400,
           'request/invalid'
@@ -268,7 +249,7 @@ export async function performEmergencyRevoke(
     logger.warn({ agent: agentAddress }, 'Emergency revocation requested');
 
     // Call contract
-    const result = await chainDriver.writeContract(rbacContractAddress, [], 'emergencyRevoke', [
+    const result = await chainDriver.writeContract(rbacContractAddress, RBAC_ABI, 'emergencyRevoke', [
       agentAddress,
     ]);
 

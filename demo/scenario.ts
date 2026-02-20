@@ -1,4 +1,7 @@
+import { Buffer } from 'node:buffer';
+import { createPublicClient, http } from 'viem';
 import { ZuulAgent } from './agent.js';
+import { EncryptionService } from '../src/audit/encryption.js';
 
 /**
  * Orchestrated demo scenario
@@ -253,138 +256,234 @@ export async function runDemoScenario(): Promise<void> {
       console.log(`ℹ Emergency revoke step skipped: ${String(error)}`);
     }
 
+    // Wait for audit queue to flush (entries are queued asynchronously)
+    // Flush interval is 5 seconds + 1 second buffer for processing
+    console.log('\n⏳ Waiting for audit queue to flush (6 seconds)...');
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+
     // ========================================================================
-    // STEP 7: Query audit logs (full lifecycle supported)
+    // STEP 7: Full Audit Log Dump (Direct Blockchain Query)
     // ========================================================================
 
-    console.log('\n📍 STEP 7: Query & Decrypt Audit Logs');
+    console.log('\n📍 STEP 7: Full Audit Log Dump');
     console.log('-'.repeat(60));
-    console.log('ℹ Complete audit lifecycle implemented:');
-    console.log('  ✓ Entry creation: All requests logged via middleware');
-    console.log('  ✓ Encryption: Payloads encrypted before storage');
-    console.log('  ✓ Storage: Entries flushed to blockchain');
-    console.log('  ✓ Queries: Query by agent, tool, or time range');
-    console.log('  ✓ Decryption: Admin can inspect decrypted payloads\n');
+    console.log('ℹ Querying all audit entries directly from blockchain...\n');
 
     try {
-      // Query by agent (without decryption)
-      console.log(`\n[7.1] Query audit logs for agent (WITHOUT decryption)`);
+      // Load environment variables
+      const fs = await import('fs');
+      const path = await import('path');
+      const dotenv = await import('dotenv');
 
-      const auditResp = await fetch(
-        `${proxyUrl}/admin/audit/search?agent=${revokeAgentAddress}&limit=5`,
+      const envPath = path.default.join(process.cwd(), '.env');
+      const envConfig = dotenv.config({ path: envPath });
+
+      const rpcUrl = process.env.HEDERA_RPC_URL || envConfig.parsed?.HEDERA_RPC_URL || 'http://127.0.0.1:8545';
+      const auditContractAddress = process.env.AUDIT_CONTRACT_ADDRESS || envConfig.parsed?.AUDIT_CONTRACT_ADDRESS || '';
+
+      // Create public client for reading from blockchain
+      const client = createPublicClient({
+        chain: {
+          id: 31337,
+          name: 'Hardhat',
+          network: 'hardhat',
+          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+          rpcUrls: { default: { http: [rpcUrl] } },
+        } as any,
+        transport: http(rpcUrl),
+      });
+
+      // ABI for getEntryCount and getEntry
+      // Privacy-first design: only agent, encrypted payload, hash, and timestamp are visible
+      const auditAbi = [
         {
-          method: 'GET',
-          headers: { 'host': 'localhost:8080' },
-        }
-      );
+          name: 'getEntryCount',
+          type: 'function',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [{ type: 'uint256' }],
+        },
+        {
+          name: 'getEntry',
+          type: 'function',
+          stateMutability: 'view',
+          inputs: [{ name: 'index', type: 'uint256' }],
+          outputs: [
+            {
+              name: '',
+              type: 'tuple',
+              components: [
+                { name: 'agent', type: 'address' },
+                { name: 'encryptedPayload', type: 'bytes' },
+                { name: 'payloadHash', type: 'bytes32' },
+                { name: 'timestamp', type: 'uint256' },
+              ],
+            },
+          ],
+        },
+      ] as const;
 
-      if (auditResp.status === 200) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const auditData = (await auditResp.json()) as any;
-        console.log(`✓ Found ${auditData.count} audit entries for agent`);
+      // Get entry count using readContract
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entryCount = await (client.readContract as any)({
+        address: auditContractAddress as `0x${string}`,
+        abi: auditAbi,
+        functionName: 'getEntryCount',
+      });
 
-        if (auditData.count > 0) {
-          const entry = auditData.entries[0];
-          console.log('\n  First entry:');
-          console.log(`    Agent: ${entry.agent.slice(0, 10)}...`);
-          console.log(`    Timestamp: ${new Date(entry.timestamp * 1000).toISOString()}`);
-          console.log(`    Tool: ${entry.tool}`);
-          console.log(`    Success: ${entry.isSuccess}`);
-          console.log(`    Error: ${entry.errorType || 'N/A'}`);
-          console.log(`    Payload Hash: ${entry.payloadHash?.slice(0, 10)}...`);
-          if (entry.encryptedPayload) {
-            console.log(`    Encrypted Payload: ${String(entry.encryptedPayload).slice(0, 20)}...`);
+      console.log(`📊 Total audit entries: ${entryCount}\n`);
+
+      if (entryCount > 0n) {
+        const encryptionService = new EncryptionService();
+
+        for (let i = 0; i < Number(entryCount); i++) {
+          // Get entry using readContract
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const entry = await (client.readContract as any)({
+            address: auditContractAddress as `0x${string}`,
+            abi: auditAbi,
+            functionName: 'getEntry',
+            args: [BigInt(i)],
+          });
+
+          // Extract from tuple (viem readContract returns object or array)
+          // Privacy-first design: only agent, timestamp, encrypted payload, and hash are on-chain
+          const agent = entry.agent ?? entry[0];
+          const encryptedPayload = entry.encryptedPayload ?? entry[1];
+          const payloadHash = entry.payloadHash ?? entry[2];
+          const timestamp = Number(entry.timestamp ?? entry[3]);
+
+          console.log(`\n${'='.repeat(60)}`);
+          console.log(`📝 Entry #${i}`);
+          console.log(`${'='.repeat(60)}`);
+          console.log(`Agent:     ${agent}`);
+          console.log(`Timestamp: ${new Date(timestamp * 1000).toISOString()}`);
+          console.log(`Hash:      ${payloadHash}`);
+          console.log(`\nℹ Decrypting to reveal tool, action, and error details...`);
+
+          // Decrypt payload
+          if (encryptedPayload && encryptedPayload !== '0x') {
+            try {
+              // encryptedPayload is already base64 from the contract (stored as bytes but returned as hex)
+              // Convert hex string to base64 for decryption
+              const hexString = typeof encryptedPayload === 'string' ? encryptedPayload.slice(2) : encryptedPayload;
+              const base64Payload = Buffer.from(hexString, 'hex').toString('base64');
+              const decrypted = encryptionService.decrypt(base64Payload as any);
+
+              if (decrypted.ok) {
+                console.log('\n✓ Decrypted Payload:');
+                console.log(`  Agent Address: ${decrypted.value.agent}`);
+                console.log(`  Tool:          ${decrypted.value.tool}`);
+                console.log(`  Action:        ${decrypted.value.action}`);
+                console.log(`  Endpoint:      ${decrypted.value.endpoint}`);
+                console.log(`  Status:        ${decrypted.value.status}`);
+                console.log(`  Error Type:    ${decrypted.value.errorType || '(none)'}`);
+                console.log(`  Latency:       ${decrypted.value.latencyMs}ms`);
+                console.log(`  Request Hash:  ${decrypted.value.requestHash}`);
+                console.log(`  Response Hash: ${decrypted.value.responseHash}`);
+              } else {
+                console.log(`\n✗ Decryption failed: ${decrypted.error.message}`);
+              }
+            } catch (error) {
+              console.log(`\n⚠ Could not decrypt: ${String(error)}`);
+            }
           }
         }
-      } else {
-        console.log(`ℹ Audit query returned status ${auditResp.status}`);
-      }
 
-      // Query with decryption
-      console.log(`\n[7.2] Query audit logs (WITH decryption)`);
-
-      const decryptResp = await fetch(
-        `${proxyUrl}/admin/audit/search?agent=${revokeAgentAddress}&decrypt=true&limit=5`,
-        {
-          method: 'GET',
-          headers: { 'host': 'localhost:8080' },
-        }
-      );
-
-      if (decryptResp.status === 200) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const decryptData = (await decryptResp.json()) as any;
-        console.log(`✓ Decrypted ${decryptData.count} entries`);
-
-        if (decryptData.count > 0) {
-          const entry = decryptData.entries[0];
-          console.log('\n  First entry (decrypted):');
-          console.log(`    Agent: ${entry.agent.slice(0, 10)}...`);
-          console.log(`    Tool: ${entry.tool}`);
-          console.log(`    Success: ${entry.isSuccess}`);
-
-          if (entry.payload) {
-            console.log('    Payload:');
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const payload = entry.payload as any;
-            if (payload.action) console.log(`      Action: ${payload.action}`);
-            if (payload.endpoint) console.log(`      Endpoint: ${payload.endpoint}`);
-            if (payload.status) console.log(`      Status: ${payload.status}`);
-            if (payload.latencyMs) console.log(`      Latency: ${payload.latencyMs}ms`);
-          } else {
-            console.log('    (Could not decrypt payload)');
-          }
-        }
-      } else {
-        console.log(`ℹ Decryption query returned status ${decryptResp.status}`);
-      }
-
-      // Query by tool
-      console.log(`\n[7.3] Query audit logs by tool (GitHub)`);
-
-      const toolQueryResp = await fetch(
-        `${proxyUrl}/admin/audit/search?tool=github&limit=3`,
-        {
-          method: 'GET',
-          headers: { 'host': 'localhost:8080' },
-        }
-      );
-
-      if (toolQueryResp.status === 200) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const toolData = (await toolQueryResp.json()) as any;
-        console.log(`✓ Found ${toolData.count} entries for tool 'github'`);
-      } else {
-        console.log(`ℹ Tool query returned status ${toolQueryResp.status}`);
-      }
-
-      // Query by time range
-      console.log(`\n[7.4] Query audit logs by time range (last hour)`);
-
-      const now = Math.floor(Date.now() / 1000);
-      const oneHourAgo = now - 3600;
-
-      const timeRangeResp = await fetch(
-        `${proxyUrl}/admin/audit/search?startTime=${oneHourAgo}&endTime=${now}&limit=5`,
-        {
-          method: 'GET',
-          headers: { 'host': 'localhost:8080' },
-        }
-      );
-
-      if (timeRangeResp.status === 200) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const timeData = (await timeRangeResp.json()) as any;
-        console.log(`✓ Found ${timeData.count} entries in time range`);
-      } else {
-        console.log(`ℹ Time range query returned status ${timeRangeResp.status}`);
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`✅ Full audit log dump complete (${entryCount} entries)`);
+        console.log(`${'='.repeat(60)}\n`);
       }
     } catch (error) {
-      console.log(`ℹ Audit query step skipped: ${String(error)}`);
+      console.log(`✗ Audit log dump failed: ${String(error)}\n`);
     }
 
     // ========================================================================
-    // STEP 8: Summary
+    // STEP 8: Admin Endpoints - Audit Search and Query
+    // ========================================================================
+
+    console.log('\n📍 STEP 8: Admin Audit Search Endpoints');
+    console.log('-'.repeat(60));
+    console.log('ℹ Note: Admin endpoints are localhost-only for security\n');
+
+    const proxyHost = new URL(proxyUrl).host;
+    const adminBaseUrl = `http://${proxyHost}`;
+
+    try {
+      const queryAgent = agentAddress || agent.getAddress();
+
+      // Query 1: Search by agent (encrypted)
+      console.log('[8.1] Query audit logs by agent (encrypted)');
+      try {
+        const searchResp1 = await fetch(
+          `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}&limit=2`,
+          { headers: { host: 'localhost:8080' } }
+        );
+
+        if (searchResp1.ok) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const searchData1 = (await searchResp1.json()) as any;
+          console.log(`✓ Found ${searchData1.count} entries for agent`);
+          if (searchData1.entries[0]) {
+            console.log(`  Entry #0: Tool=${searchData1.entries[0].tool}, Success=${searchData1.entries[0].isSuccess}`);
+          }
+        } else {
+          console.log(`ℹ Query returned HTTP ${searchResp1.status} (admin server may not be running)`);
+        }
+      } catch (error) {
+        console.log(`ℹ Query failed: ${String(error).slice(0, 50)}`);
+      }
+
+      // Query 2: Search by agent with decryption
+      console.log('\n[8.2] Query audit logs by agent (decrypted)');
+      try {
+        const searchResp2 = await fetch(
+          `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}&decrypt=true&limit=1`,
+          { headers: { host: 'localhost:8080' } }
+        );
+
+        if (searchResp2.ok) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const searchData2 = (await searchResp2.json()) as any;
+          if (searchData2.entries[0]) {
+            const entry = searchData2.entries[0];
+            console.log(`✓ Decrypted entry:`);
+            console.log(`  - Tool: ${entry.payload?.tool}`);
+            console.log(`  - Action: ${entry.payload?.action}`);
+            console.log(`  - Endpoint: ${entry.payload?.endpoint?.slice(0, 50)}...`);
+            console.log(`  - Status: ${entry.payload?.status}`);
+          }
+        } else {
+          console.log(`ℹ Query returned HTTP ${searchResp2.status}`);
+        }
+      } catch (error) {
+        console.log(`ℹ Query failed: ${String(error).slice(0, 50)}`);
+      }
+
+      // Query 3: Search by tool
+      console.log('\n[8.3] Query audit logs by tool');
+      try {
+        const searchResp3 = await fetch(
+          `${adminBaseUrl}/admin/audit/search?tool=github&limit=2`,
+          { headers: { host: 'localhost:8080' } }
+        );
+
+        if (searchResp3.ok) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const searchData3 = (await searchResp3.json()) as any;
+          console.log(`✓ Found ${searchData3.count} entries for tool=github`);
+        } else {
+          console.log(`ℹ Query returned HTTP ${searchResp3.status}`);
+        }
+      } catch (error) {
+        console.log(`ℹ Query failed: ${String(error).slice(0, 50)}`);
+      }
+    } catch (error) {
+      console.log(`ℹ Admin endpoint queries skipped: ${String(error)}`);
+    }
+
+    // ========================================================================
+    // STEP 9: Summary
     // ========================================================================
 
     console.log('\n' + '='.repeat(60));
@@ -394,8 +493,8 @@ export async function runDemoScenario(): Promise<void> {
     console.log('\n✅ User Stories Demonstrated:');
     console.log('  - Stories #1-11: Agent operations (Steps 1-5)');
     console.log('  - Story #14: Emergency revoke (Step 6)');
-    console.log('  - Story #12: Audit search (Step 7.3, 7.4)');
-    console.log('  - Story #13: Decrypt audit logs (Step 7.2)');
+    console.log('  - Story #12: Audit search (Steps 7, 8)');
+    console.log('  - Story #13: Decrypt audit logs (Steps 7, 8)');
 
     console.log('\nKey takeaways:');
     console.log('1. Agent signs requests with EIP-191 (via viem)');

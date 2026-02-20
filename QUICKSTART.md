@@ -197,7 +197,7 @@ pnpm hardhat ignition deploy ignition/modules/Zuul.ts --network localhost
 ✓ Deployment complete
 
 Deployments:
-RBAC contract: 0x5FbDB2315678afccb333f8a9c21c841F97B39DCd
+RBAC contract: 0x5FbDB2315678afecb367f032d93F642f64180aa3
 Audit contract: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
 ```
 

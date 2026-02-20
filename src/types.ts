@@ -163,15 +163,18 @@ export type AuditPayload = Readonly<{
 
 /**
  * Audit entry on blockchain
- * Public on-chain; decryption key held by admin
+ * ONLY agent, timestamp, encryptedPayload, and payloadHash are visible on-chain
+ * All operational details (tool, action, status, error) are encrypted in the payload
+ * Privacy-first design: blockchain only exposes agent address and time
  */
 export type AuditEntry = Readonly<{
   auditId: AuditId;
-  timestamp: Timestamp; // Public: when did this happen
-  encryptedPayload: EncryptedPayload; // Private: agent + tool + action + endpoint + latency + status
-  payloadHash: Hash; // Public: SHA-256(plaintext payload) — proves integrity
-  agentSignature: Signature; // Public: original X-Signature from request — proves agent intent
-  proxySignature: Signature; // Public: proxy signs payloadHash — proves Zuul attestation
+  agent: AgentAddress; // Agent wallet address (visible on-chain, indexed for queries)
+  timestamp: Timestamp; // Block timestamp (visible on-chain, indexed for time-range queries)
+  encryptedPayload: EncryptedPayload; // AES-256-GCM encrypted audit data (contains tool, action, success, error)
+  payloadHash: Hash; // SHA-256(plaintext payload) — proves integrity
+  agentSignature: Signature; // EIP-191 signature from request — proves agent intent
+  proxySignature: Signature; // Proxy signs payloadHash — proves Zuul attestation
 }>;
 
 // ============================================================================

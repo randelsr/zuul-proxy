@@ -11,27 +11,27 @@ contract Audit {
 
     /**
      * @dev Stores audit entry information with encrypted payload
+     * Only unencrypted fields: agent (for querying), timestamp (for time range), encrypted payload, and hash
+     * All operational details (tool, action, success/failure, error) are encrypted
      */
     struct AuditEntry {
         address agent;                      // Agent wallet (indexed for queries)
-        bytes encryptedPayload;             // Full AES-256-GCM encrypted audit data
+        bytes encryptedPayload;             // Full AES-256-GCM encrypted audit data (contains tool, action, success, error)
         bytes32 payloadHash;                // SHA-256(plaintext) — proves integrity
         uint256 timestamp;                  // Block timestamp (indexed for time-range queries)
-        bool isSuccess;                     // Request succeeded or denied
-        string tool;                        // Tool key (indexed for tool queries)
-        string errorType;                   // Error code if denied (e.g., "permission/no_action_access")
     }
 
     AuditEntry[] public entries;
 
-    // Indexes for efficient queries (O(1) agent/tool lookups, O(n) time range)
+    // Indexes for efficient queries (O(1) agent lookups, O(n) time range)
+    // Tool queries require decryption, so no tool index
     mapping(address => uint256[]) private entriesByAgent;      // Agent → [entryIndex...]
-    mapping(string => uint256[]) private entriesByTool;        // Tool → [entryIndex...]
 
     /**
      * @dev Emitted when an audit entry is recorded
+     * All operational details are encrypted, only agent/timestamp/hash are unencrypted
      */
-    event AuditLogged(address indexed agent, bytes32 indexed payloadHash, uint256 timestamp, bool isSuccess, string tool, uint256 entryIndex);
+    event AuditLogged(address indexed agent, bytes32 indexed payloadHash, uint256 timestamp, uint256 entryIndex);
 
     /**
      * @dev Initialize with RBAC contract address
@@ -43,39 +43,30 @@ contract Audit {
 
     /**
      * @dev Record an audit entry with encrypted payload
+     * All operational details (tool, action, success/failure, error) must be in the encrypted payload
      * @param agent The agent address
-     * @param encryptedPayload Full AES-256-GCM encrypted audit data
-     * @param payloadHash SHA-256 hash of plaintext payload for integrity
-     * @param isSuccess Whether the request succeeded
-     * @param tool Tool key that was accessed
-     * @param errorType Error code if denied (empty string if success)
+     * @param encryptedPayload Full AES-256-GCM encrypted audit data (contains all operational details)
+     * @param payloadHash SHA-256 hash of plaintext payload for integrity verification
      */
     function recordEntry(
         address agent,
         bytes memory encryptedPayload,
-        bytes32 payloadHash,
-        bool isSuccess,
-        string memory tool,
-        string memory errorType
+        bytes32 payloadHash
     ) public {
         AuditEntry memory entry = AuditEntry({
             agent: agent,
             encryptedPayload: encryptedPayload,
             payloadHash: payloadHash,
-            timestamp: block.timestamp,
-            isSuccess: isSuccess,
-            tool: tool,
-            errorType: errorType
+            timestamp: block.timestamp
         });
 
         uint256 entryIndex = entries.length;
         entries.push(entry);
 
-        // Update indexes for O(1) queries
+        // Update agent index for O(1) agent queries
         entriesByAgent[agent].push(entryIndex);
-        entriesByTool[tool].push(entryIndex);
 
-        emit AuditLogged(agent, payloadHash, block.timestamp, isSuccess, tool, entryIndex);
+        emit AuditLogged(agent, payloadHash, block.timestamp, entryIndex);
     }
 
     /**
@@ -121,30 +112,6 @@ contract Audit {
         return result;
     }
 
-    /**
-     * @dev Get entries by tool with pagination
-     * @param tool The tool key
-     * @param offset Starting index in tool's entries
-     * @param limit Max results (capped at 100)
-     * @return Array of AuditEntry structs
-     */
-    function getEntriesByTool(
-        string memory tool,
-        uint256 offset,
-        uint256 limit
-    ) public view returns (AuditEntry[] memory) {
-        require(limit <= 100, "Limit must be <= 100");
-
-        uint256[] memory indices = entriesByTool[tool];
-        uint256 available = indices.length > offset ? indices.length - offset : 0;
-        uint256 count = available > limit ? limit : available;
-
-        AuditEntry[] memory result = new AuditEntry[](count);
-        for (uint256 i = 0; i < count; i++) {
-            result[i] = entries[indices[offset + i]];
-        }
-        return result;
-    }
 
     /**
      * @dev Get entries by time range with pagination (sequential scan)
@@ -201,12 +168,4 @@ contract Audit {
         return entriesByAgent[agent].length;
     }
 
-    /**
-     * @dev Get count of entries for a tool
-     * @param tool The tool key
-     * @return Number of entries
-     */
-    function getToolEntryCount(string memory tool) public view returns (uint256) {
-        return entriesByTool[tool].length;
-    }
 }

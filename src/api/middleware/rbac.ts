@@ -167,7 +167,13 @@ export function rbacMiddleware(
         });
       }
 
-      // Step 5: Check if agent has permission for (tool, action)
+      // Step 5: Attach tool and action to context for next middleware (even on denial)
+      // This ensures audit middleware can capture denied requests
+      context.set('toolKey', toolKey);
+      context.set('action', action);
+      context.set('role', role);
+
+      // Step 6: Check if agent has permission for (tool, action)
       const toolPermissions = role.permissions.get(toolKey);
 
       if (!toolPermissions || !toolPermissions.has(action)) {
@@ -181,34 +187,18 @@ export function rbacMiddleware(
           },
           'Permission denied'
         );
-        context.status(403);
-        return context.json({
-          jsonrpc: '2.0',
-          id: null,
-          error: {
-            code: -32011,
-            message: `Permission denied: ${toolKey}.${action}`,
-            data: {
-              tool: toolKey,
-              action,
-              allowed_actions: toolPermissions ? Array.from(toolPermissions) : [],
-            },
-          },
-          _governance: {
-            request_id: requestId,
-            agent: recoveredAddress,
-            tool: toolKey,
-            action,
-            timestamp: Math.floor(Date.now() / 1000),
-            error_type: 'permission/no_action_access',
-          },
+
+        // Set permission denied flag on context
+        // This allows audit middleware to run BEFORE returning error
+        context.set('permissionDenied', {
+          code: -32011,
+          message: `Permission denied: ${toolKey}.${action}`,
+          allowedActions: toolPermissions ? Array.from(toolPermissions) : [],
         });
       }
 
-      // Step 6: Attach to context for next middleware
-      context.set('toolKey', toolKey);
-      context.set('action', action);
-      context.set('role', role);
+      // Step 7: Continue to next middleware (even on permission denial)
+      // This ensures audit middleware captures the denied request
 
       logger.info(
         { requestId, agent: recoveredAddress, tool: toolKey, action },

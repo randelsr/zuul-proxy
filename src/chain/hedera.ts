@@ -1,4 +1,5 @@
-import { createPublicClient, http, type Abi, type PublicClient, keccak256, encodeFunctionData, decodeFunctionResult, toHex } from 'viem';
+import { createPublicClient, createWalletClient, http, type Abi, type PublicClient, type WalletClient, keccak256, encodeFunctionData, decodeFunctionResult, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import type { ChainDriver } from './driver.js';
 import type { AgentAddress, ChainId, Role, RoleId, TransactionHash } from '../types.js';
 import { ServiceError } from '../errors.js';
@@ -14,9 +15,11 @@ const logger = getLogger('chain:hedera');
  * Chain ID: 295 (Hedera testnet)
  */
 export class HederaChainDriver implements ChainDriver {
-  private readonly chainId: ChainId = 295 as ChainId;
+  // Use 31337 for local Hardhat, 295 for Hedera testnet
+  private readonly chainId: ChainId = (process.env.HARDHAT_SIGNER_KEY ? 31337 : 295) as ChainId;
   private readonly rpcUrl: string;
   private readonly publicClient: PublicClient;
+  private readonly walletClient: WalletClient | null;
   private readonly roles: Readonly<Role[]>;
   private readonly rbacContractAddress: string;
 
@@ -35,21 +38,41 @@ export class HederaChainDriver implements ChainDriver {
     // Use provided publicClient for testing, or create real client for production
     if (publicClient) {
       this.publicClient = publicClient;
+      this.walletClient = null;
     } else {
-      // Create viem client for Hedera testnet
+      // Create viem clients for Hedera testnet
       // Using generic chain config since viem 2.4.0 doesn't have hederaTestnet built-in
+      // Use chainId 31337 for local Hardhat, 295 for Hedera testnet
+      const isLocalHardhat = !!process.env.HARDHAT_SIGNER_KEY;
+      const chainConfig = {
+        id: isLocalHardhat ? 31337 : 295,
+        name: isLocalHardhat ? 'Hardhat Local' : 'Hedera Testnet',
+        network: isLocalHardhat ? 'hardhat' : 'hedera-testnet',
+        nativeCurrency: { name: isLocalHardhat ? 'ETH' : 'HBAR', symbol: isLocalHardhat ? 'ETH' : 'HBAR', decimals: 18 },
+        rpcUrls: {
+          default: { http: [this.rpcUrl] },
+        },
+      } as const;
+
       this.publicClient = createPublicClient({
-        chain: {
-          id: 295,
-          name: 'Hedera Testnet',
-          network: 'hedera-testnet',
-          nativeCurrency: { name: 'HBAR', symbol: 'HBAR', decimals: 18 },
-          rpcUrls: {
-            default: { http: [this.rpcUrl] },
-          },
-        } as const,
+        chain: chainConfig,
         transport: http(this.rpcUrl, { timeout: 30_000 }),
       });
+
+      // Initialize wallet client for transaction submission (if signer key available)
+      const signerKey = process.env.PROXY_SIGNER_KEY || process.env.HARDHAT_SIGNER_KEY;
+      if (signerKey) {
+        const account = privateKeyToAccount(signerKey as `0x${string}`);
+        this.walletClient = createWalletClient({
+          account,
+          chain: chainConfig,
+          transport: http(this.rpcUrl, { timeout: 60_000 }),
+        });
+        logger.debug({ signerAddress: account.address }, 'Wallet client initialized for transaction submission');
+      } else {
+        this.walletClient = null;
+        logger.debug('No signer key found; transaction submission disabled');
+      }
     }
 
     logger.info(
@@ -139,32 +162,54 @@ export class HederaChainDriver implements ChainDriver {
 
   /**
    * State-mutating contract call with 60s timeout
+   * Submits real transactions to blockchain via wallet client
    */
   async writeContract(
     contractAddress: string,
-    _abi: Abi,
+    abi: Abi,
     functionName: string,
-    _args: readonly unknown[]
+    args: readonly unknown[]
   ): Promise<Result<TransactionHash, ServiceError>> {
     try {
       logger.debug(
-        { contractAddress, functionName, chainId: this.chainId },
+        { contractAddress, functionName, chainId: this.chainId, walletClientAvailable: !!this.walletClient },
         'Writing to Hedera contract'
       );
 
-      // Simulate tx submission (actual call would use writeContract or sendTransaction)
-      const txHash =
-        `0x${Math.random().toString(16).slice(2).padStart(64, '0')}` as unknown as TransactionHash;
+      // Check if wallet client is available (requires signer key)
+      if (!this.walletClient) {
+        logger.error({}, 'Wallet client not initialized; cannot submit transaction');
+        return {
+          ok: false,
+          error: new ServiceError(
+            'Transaction submission disabled: no signer configured',
+            -32603,
+            500,
+            'service/internal_error',
+            { reason: 'PROXY_SIGNER_KEY or HARDHAT_SIGNER_KEY not set' }
+          ),
+        };
+      }
 
-      logger.info({ txHash, contractAddress }, 'Hedera transaction submitted');
+      // Submit actual transaction using wallet client
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const txHash = await (this.walletClient as any).writeContract({
+        address: contractAddress as `0x${string}`,
+        abi: abi,
+        functionName: functionName,
+        args: args as readonly unknown[],
+      });
 
-      return { ok: true, value: txHash };
+      logger.info({ txHash, contractAddress, functionName }, 'Hedera transaction submitted');
+
+      return { ok: true, value: txHash as unknown as TransactionHash };
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(
         {
           contractAddress,
           functionName,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMsg,
         },
         'Hedera contract write failed'
       );
@@ -176,7 +221,7 @@ export class HederaChainDriver implements ChainDriver {
           -32021, // SERVICE_TIMEOUT
           504,
           'service/timeout',
-          { reason: 'Hedera transaction submission failed' }
+          { reason: errorMsg }
         ),
       };
     }

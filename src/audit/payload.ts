@@ -6,7 +6,7 @@ import type {
   AuditId,
   Timestamp,
 } from '../types.js';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 
 /**
  * Audit payload: immutable record of request + decision
@@ -53,7 +53,8 @@ export function buildAuditPayload(
   requestHash: Hash,
   responseHash: Hash
 ): AuditPayload {
-  const id = `0x${Math.random().toString(16).slice(2).padStart(64, '0')}` as AuditId;
+  // Use cryptographically secure random bytes for auditId (32 bytes = 256 bits)
+  const id = `0x${randomBytes(32).toString('hex')}` as AuditId;
   const timestamp = Math.floor(Date.now() / 1000) as Timestamp;
 
   return {

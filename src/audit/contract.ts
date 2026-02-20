@@ -1,8 +1,10 @@
+import { Buffer } from 'node:buffer';
 import type { AuditEntry, TransactionHash } from '../types.js';
 import { ServiceError } from '../errors.js';
 import type { Result } from '../types.js';
 import type { ChainDriver } from '../chain/driver.js';
 import { getLogger } from '../logging.js';
+import { AUDIT_ABI } from '../contracts/abis.js';
 
 const logger = getLogger('audit:contract');
 
@@ -11,13 +13,12 @@ const logger = getLogger('audit:contract');
  * Uses dual signatures: agentSignature (original X-Signature) + proxySignature (proxy signs payloadHash)
  */
 export class AuditContractWriter {
-  constructor(
-    // @ts-expect-error - contractAddress will be used in Phase 8+ for actual contract calls
-    private readonly contractAddress: string
-  ) {}
+  private readonly AUDIT_ABI_WRITE = [AUDIT_ABI[0]]; // Only recordEntry for writes
+
+  constructor(private readonly contractAddress: string) {}
 
   /**
-   * Write audit entry to blockchain
+   * Write audit entry to blockchain via Audit.recordEntry()
    * Entry contains both agent signature (from original request) and proxy signature
    *
    * @param entry AuditEntry with encrypted payload, hashes, and signatures
@@ -29,47 +30,55 @@ export class AuditContractWriter {
     chainDriver: ChainDriver
   ): Promise<Result<TransactionHash, ServiceError>> {
     try {
-      logger.debug({ auditId: entry.auditId }, 'Writing audit entry to blockchain');
+      logger.debug(
+        { auditId: entry.auditId, agent: entry.agent },
+        'Writing audit entry to blockchain'
+      );
 
-      // Call Audit.sol: logAudit(entry)
-      // Contract signature: function logAudit(AuditEntry memory entry) external returns (bytes32 txHash)
-      // AuditEntry struct:
-      // {
-      //   bytes32 id;
-      //   uint256 timestamp;
-      //   address agent;
-      //   bytes32 tool;
-      //   string action;
-      //   string endpoint;
-      //   string method;
-      //   uint16 status;
-      //   string errorType;
-      //   uint32 latencyMs;
-      //   bytes32 requestHash;
-      //   bytes32 responseHash;
-      //   bytes encryptedPayload;
-      //   bytes32 payloadHash;
-      //   bytes agentSignature;
-      //   bytes proxySignature;
-      // }
+      // Call Audit.sol: recordEntry(
+      //   address agent,
+      //   bytes memory encryptedPayload,
+      //   bytes32 payloadHash
+      // )
+      // Privacy-first design: only agent, encrypted payload, and hash are written
+      // All operational details (tool, action, status, error) are encrypted in payload
+      // Convert base64-encoded encrypted payload to hex bytes for viem
+      const encryptedHex = `0x${Buffer.from(entry.encryptedPayload, 'base64').toString('hex')}` as `0x${string}`;
 
-      // For MVP, simulate blockchain write
-      // Production: use viem's writeContract with TypeChain-generated types
-      void chainDriver; // Placeholder for Phase 8+ real implementation
-      const txHash =
-        `0x${Math.random().toString(16).slice(2).padStart(64, '0')}` as unknown as TransactionHash;
+      const result = await chainDriver.writeContract(
+        this.contractAddress,
+        this.AUDIT_ABI_WRITE,
+        'recordEntry',
+        [
+          entry.agent, // address
+          encryptedHex, // bytes (converted from base64 to hex)
+          entry.payloadHash, // bytes32
+        ]
+      );
+
+      if (!result.ok) {
+        logger.error(
+          {
+            auditId: entry.auditId,
+            error: result.error.message,
+          },
+          'Blockchain write failed'
+        );
+        return result;
+      }
 
       logger.info(
-        { auditId: entry.auditId, txHash },
+        { auditId: entry.auditId, txHash: result.value, agent: entry.agent },
         'Audit entry successfully written to blockchain'
       );
 
-      return { ok: true, value: txHash };
+      return result;
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(
         {
           auditId: entry.auditId,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMsg,
         },
         'Failed to write audit entry to blockchain'
       );
@@ -80,7 +89,8 @@ export class AuditContractWriter {
           'Audit write failed',
           -32022, // SERVICE_UNAVAILABLE
           503,
-          'service/unavailable'
+          'service/unavailable',
+          { reason: errorMsg }
         ),
       };
     }

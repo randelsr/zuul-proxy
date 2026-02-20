@@ -39,6 +39,7 @@ export function auditMiddleware(
       // After response is sent, capture audit context
       const latencyMs = Date.now() - startTime;
       const status = context.res.status;
+      const isSuccess = status >= 200 && status < 300;
 
       // If we have full context (successful auth + authz), capture full audit
       if (recoveredAddress && signedRequest && toolKey && action) {
@@ -57,7 +58,7 @@ export function auditMiddleware(
             signedRequest.targetUrl,
             signedRequest.method,
             status,
-            undefined, // errorType only if response is error
+            isSuccess ? '' : `http_${status}`, // Error code from HTTP status if not success
             latencyMs,
             requestHash,
             responseHash
@@ -92,8 +93,11 @@ export function auditMiddleware(
             }
 
             // Queue for blockchain (non-blocking)
+            // Privacy-first design: only agent, timestamp, encrypted payload, and hash are written
+            // Tool, action, success, and error details are encrypted in the payload
             const auditEntry: AuditEntry = {
               auditId: payload.id,
+              agent: recoveredAddress,
               timestamp: payload.timestamp,
               encryptedPayload: encryptResult.value,
               payloadHash,

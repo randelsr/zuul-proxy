@@ -25,6 +25,8 @@ export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecuto
     const signedRequest = context.get('signedRequest') as any;
     const toolKey = context.get('toolKey') as ToolKey;
     const action = context.get('action') as PermissionAction;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const permissionDenied = context.get('permissionDenied') as any;
 
     if (!recoveredAddress || !signedRequest || !toolKey || !action) {
       logger.error({ requestId }, 'Forward handler: missing context');
@@ -37,6 +39,33 @@ export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecuto
           request_id: requestId,
           timestamp: Math.floor(Date.now() / 1000),
           error_type: 'service/internal_error',
+        },
+      });
+    }
+
+    // Check if RBAC denied permission (set by RBAC middleware)
+    // Audit middleware has already run at this point
+    if (permissionDenied) {
+      context.status(403);
+      return context.json({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: permissionDenied.code,
+          message: permissionDenied.message,
+          data: {
+            tool: toolKey,
+            action,
+            allowed_actions: permissionDenied.allowedActions,
+          },
+        },
+        _governance: {
+          request_id: requestId,
+          agent: recoveredAddress,
+          tool: toolKey,
+          action,
+          timestamp: Math.floor(Date.now() / 1000),
+          error_type: 'permission/no_action_access',
         },
       });
     }
