@@ -35,12 +35,14 @@ const ToolConfigSchema = z.object({
   keyRef: z
     .string()
     .min(1)
-    .refine(
-      (keyRef) => process.env[keyRef] !== undefined,
-      (keyRef) => ({
-        message: `Environment variable ${keyRef} not found. Add to .env file.`,
-      })
-    ),
+    .superRefine((keyRef, ctx) => {
+      if (process.env[keyRef] === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Environment variable ${keyRef} not found. Add to .env file.`,
+        });
+      }
+    }),
   endpoints: z.array(EndpointSchema).optional().default([]),
 }) as unknown as z.ZodType<ToolConfig>;
 

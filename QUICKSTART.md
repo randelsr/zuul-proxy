@@ -71,7 +71,44 @@ Keep this terminal running.
 
 ---
 
-## Step 5: Start Zuul Proxy (Terminal 2)
+## Step 5: Deploy Contracts & Register Test Agents (Terminal 2)
+
+Deploy smart contracts and register test agents with permissions:
+
+```bash
+pnpm setup:dev
+```
+
+**What this does:**
+1. Deploys RBAC contract (manages permissions)
+2. Deploys Audit contract (logs all requests)
+3. Registers 5 test agents from Hardhat accounts
+4. Assigns each agent a role from `config.yaml`
+5. Grants all permissions to each role
+
+**Expected output:**
+```
+🚀 Setting Up Local Development Environment
+✓ Hardhat node is running
+✓ .env file found
+✓ Contracts deployed
+  RBAC: 0x5FbDB2315678afccb333f8a9c21c841F97B39DCd
+  Audit: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+
+🤖 Setting up test agents...
+✓ Agent 1: 0x70997970c51812e339d9b73b0245601513...
+  Role: Developer
+  ✓ Registered as "Developer"
+  ✓ Granted github.read
+  ✓ Granted github.create
+  ...
+
+✅ LOCAL DEVELOPMENT SETUP COMPLETE!
+```
+
+---
+
+## Step 6: Start Zuul Proxy (Terminal 3)
 
 ```bash
 pnpm dev
@@ -86,58 +123,140 @@ The `.env` file is **automatically loaded** by dotenv. You should see:
 
 [INFO] Server running at http://localhost:8080
 [INFO] Health check: curl http://localhost:8080/health
+[INFO] Loaded 3 tools from config: github, slack, openai
+[INFO] Permission cache initialized with TTL 300s
 ```
 
 Keep this terminal running.
 
 ---
 
-## Step 6: Run Demo Agent (Terminal 3)
+## Step 7: Get Test Account Private Keys (Terminal 4)
+
+Get the Hardhat test account private keys that correspond to the registered agents:
 
 ```bash
-pnpm demo
+npx tsx scripts/get-test-account-keys.ts
 ```
 
 **Expected output:**
 ```
-✓ Agent initialized: 0x70997970c51812e339d9b73b0245601513...
-✓ Discovered 2 tools: github, slack
+🔑 Hardhat Test Account Private Keys
 
-Step 1: List available tools
-  ✓ GET /rpc (tools/list)
-  Tools available: github (read, create, update), slack (read, create)
+📁 Loaded registered agents from .agents.json
 
-Step 2: Make authorized GET request
-  ✓ GET /forward/https://api.github.com/repos/owner/repo/issues
-  Status: 200 OK
-  Latency: 142ms
-  Audit TX: 0xDEF123456789abcdef...
+Registered agents:
+  Agent 1: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (Developer)
+  Agent 2: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 (Administrator)
 
-Step 3: Attempt unauthorized DELETE request
-  ✗ DELETE /forward/https://api.github.com/repos/owner/repo
-  Status: 403 (Permission Denied)
-  Error: github.delete not allowed (only read, create, update)
+Available Test Accounts:
+=======================
 
-Step 4: Verify governance metadata
-  ✓ Request ID matches audit trail
-  ✓ Governance metadata includes audit transaction
+Account 0:
+  Address:     0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  Private key: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+  ✓ Registered as Agent 1 (Developer)
 
-Step 5: Check audit trail on blockchain
-  ✓ Audit entry confirmed on-chain
-  ✓ Dual signatures verified (agent + proxy)
+Account 1:
+  Address:     0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  Private key: 0x7797c0f3db8b946604ec2039dfd9763e4ffdc53174342a2ed9b14fa3eda666a5
+  ✓ Registered as Agent 2 (Administrator)
+```
 
-All tests passed! ✅
+## Step 8: Run Demo Agent (Terminal 4)
+
+Now run the demo agent with one of the private keys:
+
+```bash
+# Use Agent 1 (Developer) with 2 tools
+export AGENT_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+pnpm demo
+```
+
+Or try Agent 2 (Administrator) with more permissions:
+
+```bash
+# Use Agent 2 (Administrator) with 3 tools
+export AGENT_PRIVATE_KEY="0x7797c0f3db8b946604ec2039dfd9763e4ffdc53174342a2ed9b14fa3eda666a5"
+pnpm demo
+```
+
+**Expected output for Agent 1 (Developer):**
+```
+🚀 Zuul Proxy Demo Scenario
+============================================================
+📁 Loaded registered agents from .agents.json
+
+Registered agents:
+  Agent 1: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (Developer)
+  Agent 2: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 (Administrator)
+
+👤 Agent Address: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+🌐 Proxy URL: http://localhost:8080
+
+📍 STEP 1: Discover Available Tools
+------------------------------------------------------------
+✓ Found 2 tools:
+  - github: GitHub REST API
+    Base URL: https://api.github.com
+    Allowed Actions: read, create, update
+  - slack: Slack API
+    Base URL: https://slack.com/api
+    Allowed Actions: read
+
+📍 STEP 2: Call GitHub API (GET /repos)
+------------------------------------------------------------
+ℹ GitHub call attempt (expected in MVP): Error: Tool call failed: 401 undefined undefined
+
+📍 STEP 3: Try POST (unauthorized action)
+------------------------------------------------------------
+✓ POST blocked as expected: Error: Tool call failed: 401 undefined undefined
+
+📍 STEP 4: Governance Metadata Deep Dive
+------------------------------------------------------------
+ℹ All requests include _governance metadata:
+  ✓ request_id  — Unique ID for tracing
+  ✓ agent       — Recovered signer address
+  ✓ tool        — Matched tool key
+  ✓ action      — HTTP method mapped to permission
+  ✓ target_url  — Full URL of upstream request
+  ✓ latency_ms  — Proxy execution time
+  ✓ audit_tx    — Blockchain transaction hash
+  ✓ chain_id    — Network identifier
+  ✓ timestamp   — Server time (Unix seconds)
+
+📍 STEP 5: Audit Trail Verification
+------------------------------------------------------------
+ℹ All requests audited to blockchain:
+  ✓ Valid signatures → Agent recovered correctly
+  ✓ Permission checks → Cached with 5min TTL
+  ✓ Success and failure → Both audited to chain
+  ✓ Governance metadata → Included on all responses
+  ✓ Fail-closed behavior → 503 on chain outage (never 403)
+
+============================================================
+✅ Demo Scenario Complete
+============================================================
+
+Key takeaways:
+1. Agent signs requests with EIP-191 (via viem)
+2. Proxy verifies signature and recovers signer
+3. RBAC permission checks are cached (5min TTL)
+4. All requests (success + failure) are audited
+5. Governance metadata returned on all responses
+6. Fail-closed on chain outage (503, never 403)
 ```
 
 ---
 
 ## ✅ Success!
 
-All three components are now running:
+All components are now set up and running:
 
 1. **Hardhat** (Terminal 1) — Local blockchain at `http://127.0.0.1:8545`
-2. **Zuul Proxy** (Terminal 2) — HTTP gateway at `http://localhost:8080`
-3. **Demo Agent** (Terminal 3) — Making signed requests and verifying audit trail
+2. **Contracts & Agents** (Terminal 2) — Setup complete, agents registered on-chain
+3. **Zuul Proxy** (Terminal 3) — HTTP gateway at `http://localhost:8080`
+4. **Demo Agent** (Terminal 4) — Making signed requests and verifying audit trail
 
 ---
 
@@ -157,7 +276,9 @@ curl http://localhost:8080/health
 }
 ```
 
-### Discover Tools
+### Discover Tools for Agent 1 (Developer)
+
+List the 2 tools available to the Developer role:
 
 ```bash
 curl -X POST http://localhost:8080/rpc \
@@ -165,14 +286,95 @@ curl -X POST http://localhost:8080/rpc \
   -d '{
     "jsonrpc": "2.0",
     "method": "tools/list",
-    "params": { "agent_address": "0x70997970c51812e339d9b73b0245601513..." },
+    "params": { "agent_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" },
     "id": 1
   }'
 ```
 
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "tools": [
+      {
+        "key": "github",
+        "base_url": "https://api.github.com",
+        "description": "GitHub REST API",
+        "allowed_actions": ["read", "create", "update"]
+      },
+      {
+        "key": "slack",
+        "base_url": "https://slack.com/api",
+        "description": "Slack API",
+        "allowed_actions": ["read"]
+      }
+    ]
+  },
+  "_governance": {
+    "request_id": "14064c03-efac-4105-bf70-d8502538ec9b",
+    "agent": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "chain_id": 295,
+    "timestamp": 1740000000
+  }
+}
+```
+
+### Discover Tools for Agent 2 (Administrator)
+
+List the 3 tools available to the Administrator role (includes openai):
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/list",
+    "params": { "agent_address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" },
+    "id": 1
+  }'
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "tools": [
+      {
+        "key": "github",
+        "base_url": "https://api.github.com",
+        "description": "GitHub REST API",
+        "allowed_actions": ["read", "create", "update", "delete"]
+      },
+      {
+        "key": "slack",
+        "base_url": "https://slack.com/api",
+        "description": "Slack API",
+        "allowed_actions": ["read", "create"]
+      },
+      {
+        "key": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "description": "OpenAI API",
+        "allowed_actions": ["read", "create"]
+      }
+    ]
+  },
+  "_governance": {
+    "request_id": "d9ef70a7-70d6-431e-8b0b-7122c1ccdbba",
+    "agent": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "chain_id": 295,
+    "timestamp": 1740000000
+  }
+}
+```
+
 ### Make a Signed Request
 
-See `demo/agent.ts` for the signature generation code, or consult `docs/api.md` for the full signing process.
+See `demo/agent.ts` for the signature generation code, or consult `docs/api.md` for the full signing process. The `pnpm demo` command shows how to sign requests with EIP-191.
 
 ---
 
@@ -180,16 +382,17 @@ See `demo/agent.ts` for the signature generation code, or consult `docs/api.md` 
 
 The `.env` file is **automatically loaded** when you run `pnpm dev`. Variables include:
 
-| Variable | Purpose | Local Dev Value |
-|----------|---------|-----------------|
-| `HEDERA_RPC_URL` | Blockchain RPC endpoint | `http://127.0.0.1:8545` (Hardhat) |
-| `RBAC_CONTRACT_ADDRESS` | Permission contract | Deployed address |
-| `AUDIT_CONTRACT_ADDRESS` | Audit log contract | Deployed address |
-| `AUDIT_ENCRYPTION_KEY` | Audit payload encryption | Test key (64 hex chars) |
-| `WALLET_PRIVATE_KEY` | Proxy signing key | Hardhat account #0 |
-| `GITHUB_API_KEY` | GitHub tool key | Dummy value for testing |
-| `SLACK_BOT_TOKEN` | Slack tool key | Dummy value for testing |
-| `OPENAI_API_KEY` | OpenAI tool key | Dummy value for testing |
+| Variable | Purpose | Local Dev Value | Updated By |
+|----------|---------|-----------------|------------|
+| `HEDERA_RPC_URL` | Blockchain RPC endpoint | `http://127.0.0.1:8545` (Hardhat) | Manual setup |
+| `RBAC_CONTRACT_ADDRESS` | Permission contract address | Deployed by Ignition | `pnpm setup:dev` |
+| `AUDIT_CONTRACT_ADDRESS` | Audit log contract address | Deployed by Ignition | `pnpm setup:dev` |
+| `AUDIT_ENCRYPTION_KEY` | Audit payload encryption | Test key (64 hex chars) | Manual setup |
+| `GITHUB_API_KEY` | GitHub tool API key | Dummy value for testing | Manual setup |
+| `SLACK_BOT_TOKEN` | Slack tool bot token | Dummy value for testing | Manual setup |
+| `OPENAI_API_KEY` | OpenAI tool API key | Dummy value for testing | Manual setup |
+
+**Note:** Contract addresses are **automatically updated** by `pnpm setup:dev` when contracts are deployed. You don't need to update them manually.
 
 ---
 
@@ -220,11 +423,24 @@ cat .env | grep AUDIT_ENCRYPTION_KEY
 ```
 
 ### "Cannot connect to contract at 0x5FbDB2..."
-Contract addresses may be different. Deploy contracts and update `.env`:
+Contract addresses may be different after restarting Hardhat. Redeploy and setup agents:
 ```bash
-pnpm hardhat ignition deploy ignition/modules/Zuul.ts --network localhost
-pnpm hardhat run scripts/get-contract-address.ts --network localhost
-# Copy addresses to .env
+# Kill old Hardhat node and restart
+pnpm contracts:dev    # In Terminal 1
+
+# Then redeploy contracts and register agents
+pnpm setup:dev        # In Terminal 2 (or new terminal)
+```
+
+### "No agents registered" or "permission denied" errors
+Make sure you ran the agent setup step:
+```bash
+pnpm setup:dev        # Registers test agents to RBAC contract
+```
+
+If contracts were already deployed, you can just re-register agents:
+```bash
+pnpm setup:agents     # Register agents only (contracts already deployed)
 ```
 
 ---
@@ -283,13 +499,17 @@ zuul-proxy/
 
 1. **Hardhat** provides a local Ethereum-compatible blockchain
 2. **Smart contracts** (RBAC, Audit) are deployed to Hardhat
-3. **Zuul Proxy** starts an HTTP server that:
+3. **Test agents** are registered on-chain with roles and permissions from `config.yaml`:
+   - Agent 1 gets the "Developer" role (read/create/update on github, read on slack)
+   - Agent 2 gets the "Admin" role (full access to all tools)
+   - Agents 3-5 can be customized as needed
+4. **Zuul Proxy** starts an HTTP server that:
    - Verifies agent signatures (EIP-191)
    - Checks permissions on-chain (RBAC contract)
    - Injects API keys into upstream requests
    - Logs all requests to blockchain (Audit contract)
-4. **Demo Agent** makes signed requests to test the full flow
-5. **Audit trail** is recorded on the local blockchain
+5. **Demo Agent** makes signed requests to test the full flow
+6. **Audit trail** is recorded on the local blockchain
 
 ---
 

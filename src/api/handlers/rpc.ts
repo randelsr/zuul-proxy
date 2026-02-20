@@ -15,7 +15,7 @@ const logger = getLogger('handlers:rpc');
 const RpcRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
   method: z.enum(['tools/list', 'tools/describe']),
-  params: z.record(z.unknown()).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
   id: z.union([z.string(), z.number()]).optional(),
 });
 

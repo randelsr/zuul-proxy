@@ -1,141 +1,67 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
 /**
  * @title RBAC
- * @notice On-chain permission management for Zuul proxy
- *
- * Agent Registration: admin calls registerAgent(agent_address, role_id)
- * Permission Grant: admin calls grantPermission(role_id, tool, action)
- * Permission Lookup: proxy calls hasPermission(agent, tool, action) -> bool
- * Emergency Revoke: admin calls emergencyRevoke(agent_address)
- *
- * All state is on-chain; immutable record maintained by EVM consensus
+ * @dev Role-Based Access Control contract for Zuul Proxy
+ * Maps agents to roles for permission management
  */
-
-contract RBAC is Ownable {
-    constructor() Ownable(msg.sender) {}
-
-    // ========================================================================
-    // STATE
-    // ========================================================================
-
-    /// Agent address -> role ID
-    mapping(address => bytes32) public agentRoles;
-
-    /// Agent address -> active status
-    mapping(address => bool) public agentActive;
-
-    /// (role ID, tool, action) -> permission exists
-    mapping(bytes32 => mapping(string => mapping(string => bool))) public permissions;
-
-    // ========================================================================
-    // EVENTS
-    // ========================================================================
-
-    event AgentRegistered(address indexed agent, bytes32 indexed roleId);
-    event AgentRevoked(address indexed agent);
-    event PermissionGranted(bytes32 indexed roleId, string indexed tool, string action);
-    event PermissionRevoked(bytes32 indexed roleId, string indexed tool, string action);
-
-    // ========================================================================
-    // ADMIN INTERFACE
-    // ========================================================================
+contract RBAC {
+    /**
+     * @dev Stores role information
+     * roleId: keccak256 hash of role name
+     * isActive: whether the role is active
+     */
+    mapping(address agent => bytes32 roleId) public agentRoles;
+    mapping(bytes32 roleId => bool isActive) public activeRoles;
 
     /**
-     * Register an agent with a role
-     * Only owner can call
-     * @param agent Agent wallet address
-     * @param roleId Role identifier (e.g., keccak256("developer"))
+     * @dev Emitted when an agent's role is set
      */
-    function registerAgent(address agent, bytes32 roleId) external onlyOwner {
-        require(agent != address(0), "Invalid agent address");
+    event RoleSet(address indexed agent, bytes32 indexed roleId);
+
+    /**
+     * @dev Emitted when a role is activated/deactivated
+     */
+    event RoleStatusChanged(bytes32 indexed roleId, bool isActive);
+
+    /**
+     * @dev Set the role for an agent
+     * @param agent The agent address
+     * @param roleId The keccak256 hash of the role name
+     */
+    function setAgentRole(address agent, bytes32 roleId) public {
         agentRoles[agent] = roleId;
-        agentActive[agent] = true;
-        emit AgentRegistered(agent, roleId);
+        emit RoleSet(agent, roleId);
     }
 
     /**
-     * Emergency revoke: immediately deny all access to an agent
-     * Only owner can call
-     * @param agent Agent wallet address
+     * @dev Get the role for an agent
+     * @param agent The agent address
+     * @return A tuple of (roleId, isActive)
      */
-    function emergencyRevoke(address agent) external onlyOwner {
-        require(agent != address(0), "Invalid agent address");
-        agentActive[agent] = false;
-        emit AgentRevoked(agent);
-    }
-
-    /**
-     * Grant a permission to a role
-     * @param roleId Role identifier
-     * @param tool Tool name (e.g., "github")
-     * @param action Action (e.g., "read", "create", "update", "delete")
-     */
-    function grantPermission(
-        bytes32 roleId,
-        string calldata tool,
-        string calldata action
-    ) external onlyOwner {
-        require(bytes(tool).length > 0, "Invalid tool");
-        require(bytes(action).length > 0, "Invalid action");
-        permissions[roleId][tool][action] = true;
-        emit PermissionGranted(roleId, tool, action);
-    }
-
-    /**
-     * Revoke a permission from a role
-     * @param roleId Role identifier
-     * @param tool Tool name
-     * @param action Action
-     */
-    function revokePermission(
-        bytes32 roleId,
-        string calldata tool,
-        string calldata action
-    ) external onlyOwner {
-        require(bytes(tool).length > 0, "Invalid tool");
-        require(bytes(action).length > 0, "Invalid action");
-        permissions[roleId][tool][action] = false;
-        emit PermissionRevoked(roleId, tool, action);
-    }
-
-    // ========================================================================
-    // QUERY INTERFACE
-    // ========================================================================
-
-    /**
-     * Check if agent has permission for (tool, action)
-     * Used by proxy on every request
-     * View function: gas-free query
-     *
-     * @param agent Agent wallet address
-     * @param tool Tool name
-     * @param action Action
-     * @return True if agent is active AND has permission; false otherwise
-     */
-    function hasPermission(
-        address agent,
-        string calldata tool,
-        string calldata action
-    ) external view returns (bool) {
-        // Agent must be active
-        if (!agentActive[agent]) return false;
-
-        // Agent's role must have permission
+    function getAgentRole(address agent) public view returns (bytes32, bool) {
         bytes32 roleId = agentRoles[agent];
-        return permissions[roleId][tool][action];
+        bool isActive = activeRoles[roleId];
+        return (roleId, isActive);
     }
 
     /**
-     * Get agent's role and active status
-     * @param agent Agent wallet address
-     * @return roleId The role ID assigned to the agent
-     * @return isActive Whether the agent is currently active
+     * @dev Set the active status of a role
+     * @param roleId The keccak256 hash of the role name
+     * @param isActive Whether the role is active
      */
-    function getAgentRole(address agent) external view returns (bytes32 roleId, bool isActive) {
-        return (agentRoles[agent], agentActive[agent]);
+    function setRoleStatus(bytes32 roleId, bool isActive) public {
+        activeRoles[roleId] = isActive;
+        emit RoleStatusChanged(roleId, isActive);
+    }
+
+    /**
+     * @dev Check if a role is active
+     * @param roleId The keccak256 hash of the role name
+     * @return Whether the role is active
+     */
+    function isRoleActive(bytes32 roleId) public view returns (bool) {
+        return activeRoles[roleId];
     }
 }

@@ -45,7 +45,7 @@ roles:
       - tool: slack
         actions: [read]
 
-  - id: admin
+  - id: administrator
     name: Administrator
     permissions:
       - tool: github

@@ -15,9 +15,42 @@ export async function runDemoScenario(): Promise<void> {
   console.log('='.repeat(60));
 
   // Agent configuration
-  const agentPrivateKey =
-    (process.env.AGENT_PRIVATE_KEY as `0x${string}`) ||
-    ('0x1111111111111111111111111111111111111111111111111111111111111111' as `0x${string}`);
+  if (!process.env.AGENT_PRIVATE_KEY) {
+    console.error('\n❌ AGENT_PRIVATE_KEY not set');
+    console.error('\nTo run the demo:');
+    console.error('  1. Run setup: pnpm setup:dev');
+    console.error('  2. Set agent private key:');
+    console.error(
+      '     export AGENT_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb476c6b8d6c1f02960247590"'
+    );
+    console.error('  3. Run demo: pnpm demo\n');
+    process.exit(1);
+  }
+
+  const agentPrivateKey = process.env.AGENT_PRIVATE_KEY as `0x${string}`;
+  let agentAddress: string | undefined;
+
+  // Try to read registered agents from .agents.json (created by pnpm setup:dev)
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const agentsFile = path.default.join(process.cwd(), '.agents.json');
+    if (fs.default.existsSync(agentsFile)) {
+      const agents = JSON.parse(fs.default.readFileSync(agentsFile, 'utf-8'));
+      console.log('📁 Loaded registered agents from .agents.json');
+      // Show available agents
+      console.log('\nRegistered agents:');
+      Object.entries(agents).forEach(([idx, agent]: [string, any]) => {
+        console.log(`  Agent ${idx}: ${agent.address} (${agent.role})`);
+      });
+      console.log('');
+      agentAddress = agents[1]?.address;
+    }
+  } catch (error) {
+    console.warn(`⚠️  Could not read .agents.json`);
+    console.warn(`   Run 'pnpm setup:dev' first to register test agents\n`);
+  }
+
   const proxyUrl = process.env.PROXY_URL || 'http://localhost:8080';
 
   // Initialize agent

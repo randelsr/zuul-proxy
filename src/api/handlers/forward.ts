@@ -17,7 +17,7 @@ const logger = getLogger('handlers:forward');
  *
  * On error: already handled by middleware, but forward errors handled here
  */
-export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecutor) {
+export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecutor, chainId: ChainId) {
   return async (context: Context) => {
     const requestId = context.get('requestId') as string;
     const recoveredAddress = context.get('recoveredAddress') as AgentAddress;
@@ -140,6 +140,7 @@ export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecuto
         action,
         target_url: signedRequest.targetUrl,
         latency_ms: latencyMs,
+        chain_id: chainId,
         // audit_tx would be added once audit entry is written (async)
         timestamp: Math.floor(Date.now() / 1000),
       };
@@ -191,7 +192,7 @@ export function forwardHandler(custody: KeyCustodyDriver, executor: ProxyExecuto
         if (typeof result.body === 'string') {
           context.text(result.body);
         } else if (Buffer.isBuffer(result.body)) {
-          context.body(result.body);
+          context.body(result.body as unknown as ArrayBuffer);
         } else {
           context.text(JSON.stringify(result.body));
         }

@@ -31,7 +31,7 @@ export function rbacMiddleware(
     if (!recoveredAddress) {
       logger.error({ requestId }, 'RBAC middleware: missing recovered address');
       context.status(500);
-      context.json({
+      return context.json({
         jsonrpc: '2.0',
         id: null,
         error: { code: -32603, message: 'Internal server error' },
@@ -41,13 +41,12 @@ export function rbacMiddleware(
           error_type: 'service/internal_error',
         },
       });
-      return;
     }
 
     if (!signedRequest) {
       logger.error({ requestId }, 'RBAC middleware: missing signed request');
       context.status(500);
-      context.json({
+      return context.json({
         jsonrpc: '2.0',
         id: null,
         error: { code: -32603, message: 'Internal server error' },
@@ -57,7 +56,6 @@ export function rbacMiddleware(
           error_type: 'service/internal_error',
         },
       });
-      return;
     }
 
     try {
@@ -67,7 +65,7 @@ export function rbacMiddleware(
       if (!actionResult.ok) {
         logger.warn({ requestId, method: signedRequest.method }, 'Invalid HTTP method');
         context.status(400);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -81,7 +79,6 @@ export function rbacMiddleware(
             error_type: 'request/malformed',
           },
         });
-        return;
       }
 
       const action: PermissionAction = actionResult.value;
@@ -92,7 +89,7 @@ export function rbacMiddleware(
       if (!toolResult.ok) {
         logger.warn({ requestId, targetUrl: signedRequest.targetUrl }, 'Unknown tool');
         context.status(404);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -107,7 +104,6 @@ export function rbacMiddleware(
             error_type: 'request/unknown_tool',
           },
         });
-        return;
       }
 
       const toolKey: ToolKey = toolResult.value.key;
@@ -122,7 +118,7 @@ export function rbacMiddleware(
           'RBAC check failed (chain unavailable)'
         );
         context.status(503);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -139,7 +135,6 @@ export function rbacMiddleware(
             error_type: 'service/unavailable',
           },
         });
-        return;
       }
 
       // NOTE: PermissionCache converts domain Role (ReadonlyArray<Permission>)
@@ -153,7 +148,7 @@ export function rbacMiddleware(
           'Agent is revoked (emergency)'
         );
         context.status(403);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -170,7 +165,6 @@ export function rbacMiddleware(
             error_type: 'permission/agent_revoked',
           },
         });
-        return;
       }
 
       // Step 5: Check if agent has permission for (tool, action)
@@ -188,7 +182,7 @@ export function rbacMiddleware(
           'Permission denied'
         );
         context.status(403);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -209,7 +203,6 @@ export function rbacMiddleware(
             error_type: 'permission/no_action_access',
           },
         });
-        return;
       }
 
       // Step 6: Attach to context for next middleware
@@ -227,7 +220,7 @@ export function rbacMiddleware(
       logger.error({ requestId, error: String(error) }, 'RBAC middleware error');
 
       context.status(500);
-      context.json({
+      return context.json({
         jsonrpc: '2.0',
         id: null,
         error: { code: -32603, message: 'Internal server error' },

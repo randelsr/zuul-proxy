@@ -8,30 +8,26 @@ Zuul is an HTTP gateway that enforces role-based access control via Ethereum-com
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 22+
-- pnpm
-- Hardhat (for local testing)
-
-### Setup
+Get Zuul Proxy running locally in 5 minutes:
 
 ```bash
-# 1. Install dependencies
-pnpm install
+pnpm install           # 1. Install dependencies
+pnpm contracts:build   # 2. Compile smart contracts
+pnpm contracts:dev     # 3. Start Hardhat (Terminal 1)
 
-# 2. Compile smart contracts
-pnpm contracts:build
+# Then in another terminal:
+pnpm setup:dev         # 4. Deploy contracts & register agents (Terminal 2)
+pnpm dev               # 5. Start Zuul Proxy (Terminal 3)
 
-# 3. Start Hardhat local node
-pnpm contracts:dev
-
-# 4. (In another terminal) Start Zuul proxy
-pnpm dev
-
-# 5. (In another terminal) Run demo agent
-pnpm demo
+# Then in another terminal:
+npx tsx scripts/get-test-account-keys.ts  # 6. Get test account private keys (Terminal 4)
+export AGENT_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+pnpm demo              # 7. Run demo agent
 ```
+
+**See [DEMO_SETUP.md](./DEMO_SETUP.md) for detailed instructions with expected output.**
+
+**New to Zuul?** Start with **[QUICKSTART.md](./QUICKSTART.md)** for detailed instructions.
 
 ### First Request
 
@@ -56,6 +52,12 @@ curl -X GET http://localhost:8080/forward/https://api.github.com/repos/owner/rep
 
 ## Documentation
 
+Start here:
+- **[Quick Start](./QUICKSTART.md)** — Get Zuul running in 5 minutes (recommended for new users)
+- **[Demo Setup](./DEMO_SETUP.md)** — Step-by-step guide to running the demo agent (4 terminals)
+
+Then explore:
+- **[Agent Setup](./docs/agents.md)** — Registering test agents on-chain and managing roles
 - **[Architecture](./docs/architecture.md)** — System design, module breakdown, trust boundaries
 - **[API Reference](./docs/api.md)** — Endpoint specs, error codes, signature format
 - **[Deployment](./docs/deployment.md)** — Configuration, secrets, multi-chain setup

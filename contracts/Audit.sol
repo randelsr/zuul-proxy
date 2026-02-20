@@ -1,146 +1,71 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
 /**
  * @title Audit
- * @notice Immutable audit log for Zuul proxy
- *
- * Every access attempt (success or denied) is logged here.
- * Entries can never be deleted or modified.
- * Admin has decryption key to decrypt audit payloads; hashes remain public for integrity.
- *
- * Structure per entry:
- * - auditId: UUID v4 (unique identifier)
- * - timestamp: Unix seconds (when did this happen)
- * - encryptedPayload: AES-256-GCM ciphertext (what happened — agent, tool, action, etc.)
- * - payloadHash: SHA-256 hash of plaintext (proves integrity — admin can decrypt and verify)
- * - agentSignature: EIP-191 signature from agent's X-Signature header (proves agent intent)
- * - proxySignature: Proxy signature over payloadHash (proves Zuul attestation)
+ * @dev Immutable audit log contract for Zuul Proxy
+ * Records all access requests
  */
+contract Audit {
+    address public rbacContract;
 
-contract Audit is Ownable {
-    constructor() Ownable(msg.sender) {}
-
-    // ========================================================================
-    // TYPES
-    // ========================================================================
-
+    /**
+     * @dev Stores audit entry information
+     */
     struct AuditEntry {
-        bytes32 auditId;
+        address agent;
+        bytes32 entryHash;
         uint256 timestamp;
-        bytes encryptedPayload;
-        bytes32 payloadHash;
-        bytes agentSignature;
-        bytes proxySignature;
+        bool isSuccess;
     }
 
-    // ========================================================================
-    // STATE
-    // ========================================================================
-
-    /// auditId -> AuditEntry
-    mapping(bytes32 => AuditEntry) public auditLog;
-
-    /// Append-only list of audit IDs (for iteration)
-    bytes32[] public auditIds;
-
-    // ========================================================================
-    // EVENTS
-    // ========================================================================
-
-    event AuditLogged(
-        bytes32 indexed auditId,
-        uint256 indexed timestamp,
-        address indexed agentAddress
-    );
-
-    // ========================================================================
-    // WRITE INTERFACE
-    // ========================================================================
+    AuditEntry[] public entries;
 
     /**
-     * Log an audit entry
-     * Only owner (the Zuul proxy) can call this
-     *
-     * @param auditId Unique identifier (UUID v4)
-     * @param encryptedPayload AES-256-GCM encrypted audit payload (agent, tool, action, endpoint, latency, status)
-     * @param payloadHash SHA-256 hash of plaintext payload (for integrity verification)
-     * @param agentSignature Agent's EIP-191 signature (from X-Signature header, proves intent)
-     * @param proxySignature Proxy's signature over payloadHash (proves Zuul attestation)
+     * @dev Emitted when an audit entry is recorded
      */
-    function logAudit(
-        bytes32 auditId,
-        bytes calldata encryptedPayload,
-        bytes32 payloadHash,
-        bytes calldata agentSignature,
-        bytes calldata proxySignature
-    ) external onlyOwner {
-        require(auditId != bytes32(0), "Invalid audit ID");
-        require(encryptedPayload.length > 0, "Invalid payload");
-        require(payloadHash != bytes32(0), "Invalid hash");
-        require(agentSignature.length > 0, "Invalid agent signature");
-        require(proxySignature.length > 0, "Invalid proxy signature");
+    event AuditLogged(address indexed agent, bytes32 indexed entryHash, uint256 timestamp, bool isSuccess);
 
-        uint256 timestamp = block.timestamp;
+    /**
+     * @dev Initialize with RBAC contract address
+     * @param _rbacContract Address of the RBAC contract
+     */
+    constructor(address _rbacContract) {
+        rbacContract = _rbacContract;
+    }
 
-        auditLog[auditId] = AuditEntry({
-            auditId: auditId,
-            timestamp: timestamp,
-            encryptedPayload: encryptedPayload,
-            payloadHash: payloadHash,
-            agentSignature: agentSignature,
-            proxySignature: proxySignature
+    /**
+     * @dev Record an audit entry
+     * @param agent The agent address
+     * @param entryHash The keccak256 hash of the audit entry
+     * @param isSuccess Whether the request succeeded
+     */
+    function recordEntry(address agent, bytes32 entryHash, bool isSuccess) public {
+        AuditEntry memory entry = AuditEntry({
+            agent: agent,
+            entryHash: entryHash,
+            timestamp: block.timestamp,
+            isSuccess: isSuccess
         });
-
-        auditIds.push(auditId);
-
-        // Emit event for off-chain indexing
-        // Note: agent address recovered from signature by off-chain indexer if needed
-        emit AuditLogged(auditId, timestamp, address(0));
-    }
-
-    // ========================================================================
-    // READ INTERFACE
-    // ========================================================================
-
-    /**
-     * Get a specific audit entry
-     * @param auditId The audit entry ID
-     * @return The AuditEntry (encrypted; admin must decrypt)
-     */
-    function getAuditEntry(bytes32 auditId) external view returns (AuditEntry memory) {
-        return auditLog[auditId];
+        entries.push(entry);
+        emit AuditLogged(agent, entryHash, block.timestamp, isSuccess);
     }
 
     /**
-     * Get the count of audit entries
-     * @return Total number of entries logged
+     * @dev Get total number of audit entries
+     * @return The count of audit entries
      */
-    function getAuditCount() external view returns (uint256) {
-        return auditIds.length;
+    function getEntryCount() public view returns (uint256) {
+        return entries.length;
     }
 
     /**
-     * Iterate over audit entries (paginated)
-     * @param offset Starting index
-     * @param limit Number of entries to return
-     * @return Array of audit entries
+     * @dev Get an audit entry by index
+     * @param index The index of the entry
+     * @return The audit entry
      */
-    function getAuditEntries(uint256 offset, uint256 limit)
-        external
-        view
-        returns (AuditEntry[] memory)
-    {
-        require(offset < auditIds.length, "Offset out of bounds");
-        uint256 end = offset + limit;
-        if (end > auditIds.length) end = auditIds.length;
-
-        AuditEntry[] memory entries = new AuditEntry[](end - offset);
-        for (uint256 i = offset; i < end; i++) {
-            entries[i - offset] = auditLog[auditIds[i]];
-        }
-        return entries;
+    function getEntry(uint256 index) public view returns (AuditEntry memory) {
+        require(index < entries.length, "Index out of bounds");
+        return entries[index];
     }
 }

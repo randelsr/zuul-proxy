@@ -67,7 +67,7 @@ export function createServer(
     signatureMiddleware(nonceValidator, timestampValidator),
     rbacMiddleware(toolRegistry, permissionCache, chainDriver),
     auditMiddleware(auditQueue, encryptionService),
-    forwardHandler(custody, executor)
+    forwardHandler(custody, executor, config.chain.chainId)
   );
 
   // ========================================================================

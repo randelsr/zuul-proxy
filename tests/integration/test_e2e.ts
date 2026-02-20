@@ -25,6 +25,11 @@ describe('E2E Integration Tests', () => {
   const testAccount = privateKeyToAccount(testPrivateKey);
   const agentAddress = testAccount.address as AgentAddress;
 
+  // Second test agent for chain unavailability test (to avoid permission cache)
+  const testPrivateKey2 = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd';
+  const testAccount2 = privateKeyToAccount(testPrivateKey2);
+  const agentAddress2 = testAccount2.address as AgentAddress;
+
   const mockConfig: AppConfig = {
     tools: [
       {
@@ -60,6 +65,21 @@ describe('E2E Integration Tests', () => {
 
     // Setup chain driver (local mock)
     chainDriver = new LocalChainDriver();
+
+    // Configure test agent role with full permissions for all actions on test-api
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const testRole = {
+      id: ('0x' + '1'.repeat(64)) as any,
+      name: 'Test Agent',
+      isActive: true,
+      permissions: [
+        {
+          tool: 'test-api',
+          actions: ['read', 'create', 'update', 'delete'],
+        },
+      ],
+    };
+    chainDriver.setRoleForAgent(agentAddress, testRole);
 
     // Setup custody with test API key
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -103,7 +123,7 @@ describe('E2E Integration Tests', () => {
       })
     );
 
-    // Hono's app.request() returns the context, verify error structure
+    // Hono test framework returns Response object
     const json = await response.json();
     expect(json.error.code).toBe(-32002);
     expect(json._governance.error_type).toBe('auth/invalid_signature');
@@ -133,7 +153,7 @@ describe('E2E Integration Tests', () => {
       })
     );
 
-    // Hono test framework - skip status check, verify response structure
+    // Hono test framework returns Response object
     const json = await response.json();
     expect(json.error.code).toBe(-32013);
     expect(json._governance.error_type).toBe('request/unknown_tool');
@@ -181,7 +201,7 @@ describe('E2E Integration Tests', () => {
     );
 
     try {
-      const nonce = 'abc-123-def-456' as Nonce;
+      const nonce = 'success-request-nonce-xyz' as Nonce;
       const timestamp = Math.floor(Date.now() / 1000) as Timestamp;
       const targetUrl = 'http://localhost:9999/endpoint';
       const payload = buildCanonicalPayload('GET', targetUrl, nonce, timestamp);
@@ -200,8 +220,7 @@ describe('E2E Integration Tests', () => {
         })
       );
 
-      // Hono test framework - skip status check
-
+      // Hono test framework returns Response object
       const json = await response.json();
 
       // Verify result contains upstream response
@@ -238,17 +257,18 @@ describe('E2E Integration Tests', () => {
     // Configure chain driver to fail
     chainDriver.setFailure(true);
 
-    const nonce = 'abc-123-def-456' as Nonce;
+    const nonce = 'chain-unavailable-nonce-789' as Nonce;
     const timestamp = Math.floor(Date.now() / 1000) as Timestamp;
     const targetUrl = 'http://localhost:9999/endpoint';
     const payload = buildCanonicalPayload('GET', targetUrl, nonce, timestamp);
-    const signature = await testAccount.signMessage({ message: payload });
+    // Use second test account (not in permission cache)
+    const signature = await testAccount2.signMessage({ message: payload });
 
     const response = await app.request(
       new Request(`http://localhost:8080/forward/${encodeURIComponent(targetUrl)}`, {
         method: 'GET',
         headers: {
-          'X-Agent-Address': agentAddress,
+          'X-Agent-Address': agentAddress2,
           'X-Signature': signature,
           'X-Nonce': nonce,
           'X-Timestamp': String(timestamp),
@@ -256,7 +276,7 @@ describe('E2E Integration Tests', () => {
       })
     );
 
-    // Hono test framework - skip status check
+    // Hono test framework returns Response object
     const json = await response.json();
     expect(json.error.code).toBe(-32022);
     expect(json._governance.error_type).toBe('service/unavailable');

@@ -43,7 +43,7 @@ export function signatureMiddleware(
         );
 
         context.status(401);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -59,7 +59,6 @@ export function signatureMiddleware(
             error_type: 'auth/missing_signature',
           },
         });
-        return;
       }
 
       // Step 2: Extract target URL from path
@@ -67,7 +66,7 @@ export function signatureMiddleware(
       if (!pathMatch || !pathMatch[1]) {
         logger.warn({ requestId, path: context.req.path }, 'Invalid forward path');
         context.status(400);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -80,7 +79,6 @@ export function signatureMiddleware(
             error_type: 'request/malformed',
           },
         });
-        return;
       }
 
       const targetUrl = decodeURIComponent(pathMatch[1]);
@@ -89,7 +87,7 @@ export function signatureMiddleware(
       if (!isHttpMethod(method)) {
         logger.warn({ requestId, method }, 'Invalid HTTP method');
         context.status(400);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -102,7 +100,6 @@ export function signatureMiddleware(
             error_type: 'request/malformed',
           },
         });
-        return;
       }
 
       // Step 3: Build signed request
@@ -138,7 +135,7 @@ export function signatureMiddleware(
         );
 
         context.status(401);
-        context.json({
+        return context.json({
           jsonrpc: '2.0',
           id: null,
           error: {
@@ -148,11 +145,11 @@ export function signatureMiddleware(
           },
           _governance: {
             request_id: requestId,
+            agent: signedRequest.agentAddress,
             timestamp: Math.floor(Date.now() / 1000),
             error_type: 'auth/invalid_signature',
           },
         });
-        return;
       }
 
       // Step 5: Attach recovered address to context (NOT claimed)
@@ -166,7 +163,7 @@ export function signatureMiddleware(
       logger.error({ requestId, error: String(error) }, 'Signature middleware error');
 
       context.status(500);
-      context.json({
+      return context.json({
         jsonrpc: '2.0',
         id: null,
         error: {

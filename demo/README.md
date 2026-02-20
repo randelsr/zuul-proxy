@@ -155,7 +155,6 @@ MVP Limitations:
 ## Code Structure
 
 - **agent.ts** — `ZuulAgent` class
-
   - `signRequest()` — Sign with EIP-191
   - `callToolsList()` — RPC tools/list discovery
   - `callTool()` — Forward tool execution

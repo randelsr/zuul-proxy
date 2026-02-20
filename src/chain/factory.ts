@@ -31,13 +31,13 @@ export function createChainDriver(config: AppConfig): ChainDriver {
 
     case 'hedera':
       logger.info({ chainId, rpcUrl }, 'Using HederaChainDriver');
-      return new HederaChainDriver(rpcUrl);
+      return new HederaChainDriver(rpcUrl, config);
 
     case 'base':
     case 'arbitrum':
     case 'optimism':
       logger.info({ chainName, chainId, rpcUrl }, 'Using EVMChainDriver');
-      return new EVMChainDriver(chainName, rpcUrl, chainId);
+      return new EVMChainDriver(chainName, rpcUrl, chainId, config);
 
     default:
       // Exhaustiveness check: TypeScript ensures all union members handled

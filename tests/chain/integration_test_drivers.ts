@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import type { Abi } from 'viem';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Abi, PublicClient } from 'viem';
 import { EVMChainDriver } from '../../src/chain/evm.js';
 import { HederaChainDriver } from '../../src/chain/hedera.js';
 import { LocalChainDriver } from '../../src/chain/local.js';
 import { createChainDriver } from '../../src/chain/factory.js';
 import type { AgentAddress, RoleId } from '../../src/types.js';
 import type { AppConfig } from '../../src/config/types.js';
+import { keccak256 } from 'viem';
 
 const mockAbi: Abi = [] as const;
 
@@ -26,14 +27,14 @@ describe('Chain Drivers', () => {
     });
 
     it('should return error for callContract on unknown tool', async () => {
-      const result = await driver.callContract<unknown>('0x1234', mockAbi, 'test', []);
+      const result = await driver.callContract<unknown>('0x1234567890123456789012345678901234567890', mockAbi, 'test', []);
 
       expect(result.ok).toBe(true); // Mock always succeeds (returns empty object)
       expect(typeof result.value).toBe('object');
     });
 
     it('should return mock transaction hash for writeContract', async () => {
-      const result = await driver.writeContract('0x1234', mockAbi, 'test', []);
+      const result = await driver.writeContract('0x1234567890123456789012345678901234567890', mockAbi, 'test', []);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -43,7 +44,7 @@ describe('Chain Drivers', () => {
     });
 
     it('should return default role for unknown agent', async () => {
-      const agent = '0x1234' as AgentAddress;
+      const agent = '0x1234567890123456789012345678901234567890' as AgentAddress;
       const role = await driver.getRoleForAgent(agent);
 
       expect(role.id).toBe(('0x' + '0'.repeat(64)) as RoleId);
@@ -125,6 +126,8 @@ describe('Chain Drivers', () => {
     let driver: HederaChainDriver;
 
     beforeEach(() => {
+      // Ensure RBAC_CONTRACT_ADDRESS is not set for these tests
+      delete process.env.RBAC_CONTRACT_ADDRESS;
       driver = new HederaChainDriver('https://testnet.hashio.io/api');
     });
 
@@ -144,14 +147,14 @@ describe('Chain Drivers', () => {
     });
 
     it('should return result for callContract', async () => {
-      const result = await driver.callContract<unknown>('0x1234', mockAbi, 'test', []);
+      const result = await driver.callContract<unknown>('0x1234567890123456789012345678901234567890', mockAbi, 'test', []);
 
-      expect(result.ok).toBe(true); // Stub implementation returns success
+      expect(result.ok).toBe(true);
       expect(typeof result.value).toBe('object');
     });
 
     it('should return mock transaction hash for writeContract', async () => {
-      const result = await driver.writeContract('0x1234', mockAbi, 'test', []);
+      const result = await driver.writeContract('0x1234567890123456789012345678901234567890', mockAbi, 'test', []);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -160,14 +163,12 @@ describe('Chain Drivers', () => {
       }
     });
 
-    it('should return default role for agent', async () => {
-      const agent = '0x1234' as AgentAddress;
-      const role = await driver.getRoleForAgent(agent);
+    it('should throw when getRoleForAgent called without RBAC_CONTRACT_ADDRESS', async () => {
+      const agent = '0x1234567890123456789012345678901234567890' as AgentAddress;
 
-      expect(role.id).toBe(('0x' + '0'.repeat(64)) as RoleId);
-      expect(role.name).toBe('Default Role');
-      expect(role.permissions).toEqual([]);
-      expect(role.isActive).toBe(false);
+      await expect(driver.getRoleForAgent(agent)).rejects.toThrow(
+        'RBAC_CONTRACT_ADDRESS not set in environment'
+      );
     });
   });
 
@@ -175,6 +176,8 @@ describe('Chain Drivers', () => {
     let driver: EVMChainDriver;
 
     beforeEach(() => {
+      // Ensure RBAC_CONTRACT_ADDRESS is not set for these tests
+      delete process.env.RBAC_CONTRACT_ADDRESS;
       driver = new EVMChainDriver('base', 'https://mainnet.base.org', 8453);
     });
 
@@ -201,14 +204,14 @@ describe('Chain Drivers', () => {
     });
 
     it('should return result for callContract', async () => {
-      const result = await driver.callContract<unknown>('0x1234', mockAbi, 'test', []);
+      const result = await driver.callContract<unknown>('0x1234567890123456789012345678901234567890', mockAbi, 'test', []);
 
       expect(result.ok).toBe(true);
       expect(typeof result.value).toBe('object');
     });
 
     it('should return mock transaction hash for writeContract', async () => {
-      const result = await driver.writeContract('0x1234', mockAbi, 'test', []);
+      const result = await driver.writeContract('0x1234567890123456789012345678901234567890', mockAbi, 'test', []);
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -217,14 +220,12 @@ describe('Chain Drivers', () => {
       }
     });
 
-    it('should return default role for agent', async () => {
-      const agent = '0x1234' as AgentAddress;
-      const role = await driver.getRoleForAgent(agent);
+    it('should throw when getRoleForAgent called without RBAC_CONTRACT_ADDRESS', async () => {
+      const agent = '0x1234567890123456789012345678901234567890' as AgentAddress;
 
-      expect(role.id).toBe(('0x' + '0'.repeat(64)) as RoleId);
-      expect(role.name).toBe('Default Role');
-      expect(role.permissions).toEqual([]);
-      expect(role.isActive).toBe(false);
+      await expect(driver.getRoleForAgent(agent)).rejects.toThrow(
+        'RBAC_CONTRACT_ADDRESS not set in environment'
+      );
     });
   });
 
@@ -347,6 +348,202 @@ describe('Chain Drivers', () => {
 
       expect(driver).toBeInstanceOf(EVMChainDriver);
       expect(driver.getChainId()).toBe(10);
+    });
+  });
+
+  describe('HederaChainDriver (Unit Tests with Mocked PublicClient)', () => {
+    let mockPublicClient: { readContract: ReturnType<typeof vi.fn> };
+    let driver: HederaChainDriver;
+    let config: AppConfig;
+
+    beforeEach(() => {
+      // Create mock publicClient
+      mockPublicClient = {
+        readContract: vi.fn(),
+      };
+
+      // Sample config with a role
+      config = {
+        tools: [],
+        roles: [
+          {
+            id: 'developer' as RoleId,
+            name: 'Developer',
+            permissions: [
+              { tool: 'github' as unknown as any, actions: ['read', 'create'] as any },
+            ],
+            isActive: true,
+          },
+        ],
+        chain: {
+          name: 'hedera',
+          chainId: 295,
+          rpcUrl: 'https://testnet.hashio.io/api',
+        },
+        cache: { ttlSeconds: 300 },
+        server: {
+          port: 8080,
+          host: 'localhost',
+          readTimeoutMs: 30000,
+          writeTimeoutMs: 60000,
+        },
+      };
+
+      // Set required env var
+      process.env.RBAC_CONTRACT_ADDRESS = '0x1234567890123456789012345678901234567890';
+
+      // Inject mock client via constructor
+      driver = new HederaChainDriver(
+        'https://testnet.hashio.io/api',
+        config,
+        mockPublicClient as unknown as PublicClient
+      );
+    });
+
+    afterEach(() => {
+      // Clean up environment
+      delete process.env.RBAC_CONTRACT_ADDRESS;
+    });
+
+    it('should return role from contract with matching config', async () => {
+      const agent = '0xABCD1234567890123456789012345678ABCD1234' as AgentAddress;
+
+      // Mock contract response: role hash for "developer" + isActive=true
+      const roleIdHash = keccak256(
+        `0x${Buffer.from('developer', 'utf-8').toString('hex')}`
+      );
+      mockPublicClient.readContract.mockResolvedValue([roleIdHash, true]);
+
+      const role = await driver.getRoleForAgent(agent);
+
+      expect(role.id).toBe('developer');
+      expect(role.name).toBe('Developer');
+      expect(role.isActive).toBe(true);
+      expect(role.permissions).toHaveLength(1);
+
+      // Verify contract was called with correct args
+      expect(mockPublicClient.readContract).toHaveBeenCalledWith({
+        address: '0x1234567890123456789012345678901234567890',
+        abi: expect.any(Array),
+        functionName: 'getAgentRole',
+        args: [agent],
+      });
+    });
+
+    it('should return Unknown Role when contract returns unmatched roleId', async () => {
+      const agent = '0xABCD1234567890123456789012345678ABCD1234' as AgentAddress;
+      const unknownRoleHash = '0x' + 'f'.repeat(64);
+
+      mockPublicClient.readContract.mockResolvedValue([unknownRoleHash, false]);
+
+      const role = await driver.getRoleForAgent(agent);
+
+      expect(role.id).toBe(unknownRoleHash);
+      expect(role.name).toBe('Unknown Role');
+      expect(role.isActive).toBe(false);
+      expect(role.permissions).toEqual([]);
+    });
+
+    it('should throw when contract call fails', async () => {
+      const agent = '0xABCD1234567890123456789012345678ABCD1234' as AgentAddress;
+
+      mockPublicClient.readContract.mockRejectedValue(
+        new Error('Network timeout')
+      );
+
+      await expect(driver.getRoleForAgent(agent)).rejects.toThrow();
+    });
+  });
+
+  describe('EVMChainDriver (Unit Tests with Mocked PublicClient)', () => {
+    let mockPublicClient: { readContract: ReturnType<typeof vi.fn> };
+    let driver: EVMChainDriver;
+    let config: AppConfig;
+
+    beforeEach(() => {
+      // Create mock publicClient
+      mockPublicClient = {
+        readContract: vi.fn(),
+      };
+
+      // Sample config with a role
+      config = {
+        tools: [],
+        roles: [
+          {
+            id: 'admin' as RoleId,
+            name: 'Administrator',
+            permissions: [
+              { tool: 'github' as unknown as any, actions: ['read', 'create', 'delete'] as any },
+            ],
+            isActive: true,
+          },
+        ],
+        chain: {
+          name: 'base',
+          chainId: 8453,
+          rpcUrl: 'https://mainnet.base.org',
+        },
+        cache: { ttlSeconds: 300 },
+        server: {
+          port: 8080,
+          host: 'localhost',
+          readTimeoutMs: 30000,
+          writeTimeoutMs: 60000,
+        },
+      };
+
+      // Set required env var
+      process.env.RBAC_CONTRACT_ADDRESS = '0x1234567890123456789012345678901234567890';
+
+      // Inject mock client via constructor
+      driver = new EVMChainDriver(
+        'base',
+        'https://mainnet.base.org',
+        8453,
+        config,
+        mockPublicClient as unknown as PublicClient
+      );
+    });
+
+    afterEach(() => {
+      // Clean up environment
+      delete process.env.RBAC_CONTRACT_ADDRESS;
+    });
+
+    it('should return role from contract with matching config', async () => {
+      const agent = '0xDEF01234567890123456789012345678DEF01234' as AgentAddress;
+
+      // Mock contract response: role hash for "admin" + isActive=true
+      const roleIdHash = keccak256(
+        `0x${Buffer.from('admin', 'utf-8').toString('hex')}`
+      );
+      mockPublicClient.readContract.mockResolvedValue([roleIdHash, true]);
+
+      const role = await driver.getRoleForAgent(agent);
+
+      expect(role.id).toBe('admin');
+      expect(role.name).toBe('Administrator');
+      expect(role.isActive).toBe(true);
+      expect(role.permissions).toHaveLength(1);
+
+      // Verify contract was called with correct args
+      expect(mockPublicClient.readContract).toHaveBeenCalledWith({
+        address: '0x1234567890123456789012345678901234567890',
+        abi: expect.any(Array),
+        functionName: 'getAgentRole',
+        args: [agent],
+      });
+    });
+
+    it('should throw when contract call fails', async () => {
+      const agent = '0xDEF01234567890123456789012345678DEF01234' as AgentAddress;
+
+      mockPublicClient.readContract.mockRejectedValue(
+        new Error('Contract not found')
+      );
+
+      await expect(driver.getRoleForAgent(agent)).rejects.toThrow();
     });
   });
 });
