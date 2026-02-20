@@ -253,7 +253,8 @@ export async function performAuditSearch(
 export async function performEmergencyRevoke(
   agentAddress: string,
   chainDriver: ChainDriver,
-  rbacContractAddress: string
+  rbacContractAddress: string,
+  permissionCache?: { invalidate: (agent: string) => void }
 ): Promise<Result<string, ServiceError>> {
   try {
     // Validate agent address format
@@ -280,6 +281,12 @@ export async function performEmergencyRevoke(
     }
 
     logger.info({ agent: agentAddress, txHash: result.value }, 'Agent revoked successfully');
+
+    // Invalidate permission cache so next request re-reads from chain and sees revocation
+    if (permissionCache) {
+      permissionCache.invalidate(agentAddress as any);
+      logger.debug({ agent: agentAddress }, 'Permission cache invalidated after revocation');
+    }
 
     return {
       ok: true,

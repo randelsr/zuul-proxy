@@ -202,7 +202,10 @@ export function createServer(
       const revokeResult = await performEmergencyRevoke(
         agentAddress,
         chainDriver,
-        config.chain.rbacContractAddress
+        config.chain.rbacContractAddress,
+        {
+          invalidate: (agent: string) => permissionCache.invalidate(agent as any),
+        }
       );
 
       if (!revokeResult.ok) {

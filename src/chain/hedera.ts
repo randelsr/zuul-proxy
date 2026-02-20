@@ -1,4 +1,4 @@
-import { createPublicClient, http, type Abi, type PublicClient, keccak256, encodeFunctionData, toHex } from 'viem';
+import { createPublicClient, http, type Abi, type PublicClient, keccak256, encodeFunctionData, decodeFunctionResult, toHex } from 'viem';
 import type { ChainDriver } from './driver.js';
 import type { AgentAddress, ChainId, Role, RoleId, TransactionHash } from '../types.js';
 import { ServiceError } from '../errors.js';
@@ -76,33 +76,44 @@ export class HederaChainDriver implements ChainDriver {
         'Reading from Hedera contract'
       );
 
-      // MVP: Return empty array for audit query functions
-      // Production: Would encode the function call and make RPC call
-      if (functionName.startsWith('getEntries')) {
-        // Audit query functions return empty arrays initially
+      // Encode the function call
+      if (abi.length === 0) {
         return { ok: true, value: [] as unknown as T };
       }
 
-      // For other read functions, try to encode and call
-      if (abi.length > 0) {
-        const data = encodeFunctionData({
+      const data = encodeFunctionData({
+        abi: abi,
+        functionName: functionName,
+        args: args as readonly unknown[],
+      });
+
+      // Make the static call (view function)
+      const result = await this.publicClient.call({
+        account: '0x0000000000000000000000000000000000000000',
+        to: contractAddress as `0x${string}`,
+        data: data,
+      });
+
+      // Decode the result
+      if (!result.data) {
+        return { ok: true, value: [] as unknown as T };
+      }
+
+      try {
+        const decoded = decodeFunctionResult({
           abi: abi,
           functionName: functionName,
-          args: args as readonly unknown[],
+          data: result.data,
         });
 
-        // Make the call (production implementation would decode result)
-        await this.publicClient.call({
-          account: '0x0000000000000000000000000000000000000000',
-          to: contractAddress as `0x${string}`,
-          data: data,
-        });
-
-        // For now, return empty array
+        return { ok: true, value: decoded as unknown as T };
+      } catch (decodeError) {
+        logger.warn(
+          { functionName, error: decodeError instanceof Error ? decodeError.message : String(decodeError) },
+          'Failed to decode contract result, returning empty array'
+        );
         return { ok: true, value: [] as unknown as T };
       }
-
-      return { ok: true, value: [] as unknown as T };
     } catch (error) {
       logger.error(
         {
