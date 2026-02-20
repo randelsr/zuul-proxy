@@ -8,7 +8,6 @@
         "tool": "github",
         "actions": [
           "read",
-          "create",
           "update"
         ]
       },

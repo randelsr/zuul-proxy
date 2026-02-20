@@ -41,7 +41,7 @@ roles:
     name: Developer
     permissions:
       - tool: github
-        actions: [read, create, update]
+        actions: [read, update]
       - tool: slack
         actions: [read]
 
