@@ -32,7 +32,7 @@ const HARDHAT_TEST_ACCOUNTS = [
   "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c8aaf07d92b8a761", // Account 5
 ];
 
-// RBAC contract ABI (minimal, for setAgentRole and setRoleStatus)
+// RBAC contract ABI (minimal, for setAgentRole only)
 const RBAC_ABI = [
   {
     type: "function" as const,
@@ -40,16 +40,6 @@ const RBAC_ABI = [
     inputs: [
       { name: "agent", type: "address" },
       { name: "roleId", type: "bytes32" },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable" as const,
-  },
-  {
-    type: "function" as const,
-    name: "setRoleStatus",
-    inputs: [
-      { name: "roleId", type: "bytes32" },
-      { name: "isActive", type: "bool" },
     ],
     outputs: [],
     stateMutability: "nonpayable" as const,
@@ -128,6 +118,7 @@ async function main() {
 
     try {
       // Register agent via setAgentRole
+      // Presence in mapping = active, so no separate activation step needed
       const registerHash = await walletClient.writeContract({
         address: rbacAddress as `0x${string}`,
         abi: RBAC_ABI,
@@ -135,15 +126,6 @@ async function main() {
         args: [agentAddress, roleIdHash],
       });
       console.log(`   ✓ Registered (tx: ${registerHash})`);
-
-      // Activate the role
-      const roleStatusHash = await walletClient.writeContract({
-        address: rbacAddress as `0x${string}`,
-        abi: RBAC_ABI,
-        functionName: "setRoleStatus",
-        args: [roleIdHash, true],
-      });
-      console.log(`   ✓ Role activated (tx: ${roleStatusHash})`);
       console.log("");
 
       // Store agent info for demo

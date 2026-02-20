@@ -5,6 +5,8 @@
 
 /**
  * RBAC contract ABI
+ * Simplified design: single mapping (agent → roleId)
+ * Presence = active, absence (0x0) = revoked
  */
 export const RBAC_ABI = [
   {
@@ -23,16 +25,6 @@ export const RBAC_ABI = [
       { internalType: 'bytes32', name: 'roleId', type: 'bytes32' },
     ],
     name: 'setAgentRole',
-    outputs: [],
-    stateMutability: 'nonpayable' as const,
-    type: 'function' as const,
-  },
-  {
-    inputs: [
-      { internalType: 'bytes32', name: 'roleId', type: 'bytes32' },
-      { internalType: 'bool', name: 'isActive', type: 'bool' },
-    ],
-    name: 'setRoleStatus',
     outputs: [],
     stateMutability: 'nonpayable' as const,
     type: 'function' as const,

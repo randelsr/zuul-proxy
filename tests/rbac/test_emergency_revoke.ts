@@ -14,6 +14,8 @@ const RPC_URL = 'http://127.0.0.1:8545';
 const RBAC_ADDRESS = process.env.RBAC_CONTRACT_ADDRESS || '0x0';
 
 // RBAC contract ABI (minimal for our tests)
+// New design: single agentRoles mapping (address → bytes32)
+// Presence in mapping = active, absence = revoked
 const RBAC_ABI = [
   {
     type: 'function',
@@ -24,27 +26,10 @@ const RBAC_ABI = [
   },
   {
     type: 'function',
-    name: 'revokedAgents',
-    inputs: [{ name: 'agent', type: 'address' }],
-    outputs: [{ type: 'bool' }],
-    stateMutability: 'view',
-  },
-  {
-    type: 'function',
     name: 'setAgentRole',
     inputs: [
       { name: 'agent', type: 'address' },
       { name: 'roleId', type: 'bytes32' },
-    ],
-    outputs: [],
-    stateMutability: 'nonpayable',
-  },
-  {
-    type: 'function',
-    name: 'setRoleStatus',
-    inputs: [
-      { name: 'roleId', type: 'bytes32' },
-      { name: 'isActive', type: 'bool' },
     ],
     outputs: [],
     stateMutability: 'nonpayable',
@@ -61,10 +46,25 @@ const RBAC_ABI = [
   },
   {
     type: 'function',
+    name: 'agentRoles',
+    inputs: [{ name: 'agent', type: 'address' }],
+    outputs: [{ type: 'bytes32' }],
+    stateMutability: 'view',
+  },
+  {
+    type: 'function',
     name: 'owner',
     inputs: [],
     outputs: [{ type: 'address' }],
     stateMutability: 'view',
+  },
+  {
+    type: 'event',
+    name: 'RoleSet',
+    inputs: [
+      { name: 'agent', type: 'address', indexed: true },
+      { name: 'roleId', type: 'bytes32', indexed: true },
+    ],
   },
   {
     type: 'event',
@@ -104,10 +104,28 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
   });
 
   describe('emergencyRevoke(agent)', () => {
-    it('should set revokedAgents[agent] = true', async () => {
+    it('should delete agent from agentRoles mapping', async () => {
       const agentToRevoke = ACCOUNT_1.address;
+      const testRoleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
 
-      // Call emergencyRevoke
+      // 1. First set the agent role so it exists in mapping
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'setAgentRole',
+        args: [agentToRevoke, testRoleId],
+      });
+
+      // 2. Verify agent is in mapping
+      let agentRole = await publicClient.readContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'agentRoles',
+        args: [agentToRevoke],
+      });
+      expect(agentRole).toBe(testRoleId);
+
+      // 3. Call emergencyRevoke to delete from mapping
       const txHash = await walletClient.writeContract({
         address: rbacAddress,
         abi: RBAC_ABI,
@@ -117,19 +135,28 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
 
       expect(txHash).toMatch(/^0x[0-9a-f]{64}$/i);
 
-      // Verify revokedAgents[agentToRevoke] is true
-      const isRevoked = await publicClient.readContract({
+      // 4. Verify agent is removed from mapping (returns 0x0)
+      agentRole = await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
-        functionName: 'revokedAgents',
+        functionName: 'agentRoles',
         args: [agentToRevoke],
       });
 
-      expect(isRevoked).toBe(true);
+      expect(agentRole).toBe('0x' + '0'.repeat(64));
     });
 
     it('should emit AgentRevoked event', async () => {
       const agentToRevoke = ACCOUNT_1.address;
+      const testRoleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
+
+      // Set agent role first
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'setAgentRole',
+        args: [agentToRevoke, testRoleId],
+      });
 
       // Call emergencyRevoke (event is emitted as part of transaction)
       const txHash = await walletClient.writeContract({
@@ -142,15 +169,15 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
       // Transaction should succeed with a valid hash
       expect(txHash).toMatch(/^0x[0-9a-f]{64}$/i);
 
-      // Verify agent is revoked (indirect proof of event)
-      const isRevoked = await publicClient.readContract({
+      // Verify agent is revoked by checking it's removed from mapping
+      const agentRole = await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
-        functionName: 'revokedAgents',
+        functionName: 'agentRoles',
         args: [agentToRevoke],
       });
 
-      expect(isRevoked).toBe(true);
+      expect(agentRole).toBe('0x' + '0'.repeat(64));
     });
 
     it('should be callable only by owner', async () => {
@@ -177,6 +204,15 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
 
     it('should be idempotent (can revoke same agent multiple times)', async () => {
       const agentToRevoke = ACCOUNT_1.address;
+      const testRoleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
+
+      // Set agent role first
+      await walletClient.writeContract({
+        address: rbacAddress,
+        abi: RBAC_ABI,
+        functionName: 'setAgentRole',
+        args: [agentToRevoke, testRoleId],
+      });
 
       // Revoke once
       const tx1 = await walletClient.writeContract({
@@ -188,15 +224,15 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
       expect(tx1).toMatch(/^0x[0-9a-f]{64}$/i);
 
       // Verify revoked
-      let isRevoked = await publicClient.readContract({
+      let agentRole = await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
-        functionName: 'revokedAgents',
+        functionName: 'agentRoles',
         args: [agentToRevoke],
       });
-      expect(isRevoked).toBe(true);
+      expect(agentRole).toBe('0x' + '0'.repeat(64));
 
-      // Revoke again (should succeed)
+      // Revoke again (should succeed and be idempotent)
       const tx2 = await walletClient.writeContract({
         address: rbacAddress,
         abi: RBAC_ABI,
@@ -206,18 +242,18 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
       expect(tx2).toMatch(/^0x[0-9a-f]{64}$/i);
 
       // Verify still revoked
-      isRevoked = await publicClient.readContract({
+      agentRole = await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
-        functionName: 'revokedAgents',
+        functionName: 'agentRoles',
         args: [agentToRevoke],
       });
-      expect(isRevoked).toBe(true);
+      expect(agentRole).toBe('0x' + '0'.repeat(64));
     });
   });
 
   describe('getAgentRole(agent) respects revocation', () => {
-    it('should return (roleId, false) if agent is revoked', async () => {
+    it('should return (0x0, false) if agent is revoked', async () => {
       const agent = ACCOUNT_1.address;
       const developerRoleId = keccak256(Buffer.from('developer', 'utf-8') as `0x${string}`);
 
@@ -229,15 +265,7 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
         args: [agent, developerRoleId],
       });
 
-      // 2. Activate role
-      await walletClient.writeContract({
-        address: rbacAddress,
-        abi: RBAC_ABI,
-        functionName: 'setRoleStatus',
-        args: [developerRoleId, true],
-      });
-
-      // 3. Verify agent has active role
+      // 2. Verify agent has active role (absence from revokedAgents = active)
       let result = (await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
@@ -245,9 +273,10 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
         args: [agent],
       })) as readonly [string, boolean];
 
-      expect(result[1]).toBe(true); // isActive = true
+      expect(result[0]).toEqual(developerRoleId); // roleId set
+      expect(result[1]).toBe(true); // isActive = true (in mapping, not revoked)
 
-      // 4. Revoke agent
+      // 3. Revoke agent (delete from mapping)
       await walletClient.writeContract({
         address: rbacAddress,
         abi: RBAC_ABI,
@@ -255,7 +284,7 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
         args: [agent],
       });
 
-      // 5. Verify getAgentRole now returns false despite active role
+      // 4. Verify getAgentRole now returns (0x0, false) after revocation
       result = (await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
@@ -263,8 +292,8 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
         args: [agent],
       })) as readonly [string, boolean];
 
-      expect(result[0]).toEqual(developerRoleId); // roleId unchanged
-      expect(result[1]).toBe(false); // isActive = false (due to revocation)
+      expect(result[0]).toBe('0x' + '0'.repeat(64)); // roleId = 0x0 (deleted)
+      expect(result[1]).toBe(false); // isActive = false (not in mapping)
     });
 
     it('should not affect other agents in same role', async () => {
@@ -287,14 +316,6 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
         args: [agent2, developerRoleId],
       });
 
-      // Activate role
-      await walletClient.writeContract({
-        address: rbacAddress,
-        abi: RBAC_ABI,
-        functionName: 'setRoleStatus',
-        args: [developerRoleId, true],
-      });
-
       // Revoke only agent2
       await walletClient.writeContract({
         address: rbacAddress,
@@ -310,15 +331,17 @@ describe.skip('RBAC Emergency Revoke (Story #14)', () => {
         functionName: 'getAgentRole',
         args: [agent1],
       })) as readonly [string, boolean];
+      expect(result1[0]).toEqual(developerRoleId);
       expect(result1[1]).toBe(true);
 
-      // agent2 should be revoked
+      // agent2 should be revoked (deleted from mapping)
       const result2 = (await publicClient.readContract({
         address: rbacAddress,
         abi: RBAC_ABI,
         functionName: 'getAgentRole',
         args: [agent2],
       })) as readonly [string, boolean];
+      expect(result2[0]).toBe('0x' + '0'.repeat(64));
       expect(result2[1]).toBe(false);
     });
   });
