@@ -24,6 +24,7 @@
     "contracts:deploy:hedera": "hardhat ignition deploy ignition/modules/Zuul.ts --network hederaTestnet --parameters ignition/parameters/hedera.json",
     "setup:dev": "bash scripts/setup-local-dev.sh",
     "setup:agents": "tsx scripts/register-agents.ts",
+    "audit:search": "tsx scripts/search-audit.ts",
     "demo": "tsx demo/scenario.ts"
   },
   "dependencies": {

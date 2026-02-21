@@ -803,6 +803,127 @@ curl -X POST http://localhost:8080/admin/rbac/revoke \
 
 ---
 
+## Admin CLI Tool: `audit:search`
+
+A convenient command-line interface for searching audit logs without manual HTTP requests.
+
+**Installation:** Already included in the project as a pnpm script.
+
+### Usage
+
+**Get help:**
+```bash
+pnpm audit:search --help
+```
+
+**Search by agent address:**
+```bash
+pnpm audit:search --agent 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+```
+
+**Search by agent with decryption:**
+```bash
+pnpm audit:search --agent 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --decrypt
+```
+
+**Search by time range (ISO format):**
+```bash
+# Last 24 hours
+pnpm audit:search --from 2024-01-20 --to 2024-01-21 --limit 50
+
+# Specific times
+pnpm audit:search --from 2024-01-20T12:00:00 --to 2024-01-21T12:00:00 --decrypt
+```
+
+**Custom proxy URL:**
+```bash
+pnpm audit:search --agent 0x... --proxy-url http://prod-proxy:8080
+```
+
+### Options
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--agent <address>` | string | — | Filter by agent wallet address (0x...) |
+| `--from <date>` | string | — | Start time (ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss) |
+| `--to <date>` | string | — | End time (ISO format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss) |
+| `--decrypt` | boolean | false | Decrypt payloads to reveal tool, action, status |
+| `--limit <n>` | number | 10 | Max results to return (1-100) |
+| `--proxy-url <url>` | string | http://localhost:8080 | Proxy server URL |
+| `--help` | — | — | Show help message |
+
+### Examples
+
+**Search all requests from an agent (encrypted):**
+```bash
+pnpm audit:search --agent 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+```
+
+Output:
+```
+🔍 Searching audit logs...
+   URL: http://localhost:8080/admin/audit/search?agent=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266&limit=10
+
+✅ Found 3 entries
+
+================================================================================
+
+📝 Entry #1
+  Agent:     0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  Timestamp: 2024-02-20T16:09:30.000Z
+  Hash:      0xbdc46ffeabdfe48022c18431f7cb0cd70af7e3a4a2c...
+  Encrypted: 0x4a2f8b1c2d3e4f5a6b7c8d9e0f1a2b3c...
+
+================================================================================
+✨ Query completed successfully
+```
+
+**Search with decryption to see operational details:**
+```bash
+pnpm audit:search --agent 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --decrypt --limit 5
+```
+
+Output:
+```
+🔍 Searching audit logs...
+   URL: http://localhost:8080/admin/audit/search?agent=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266&decrypt=true&limit=5
+
+✅ Found 1 entry
+
+================================================================================
+
+📝 Entry #1
+  Agent:     0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  Timestamp: 2024-02-20T16:09:30.000Z
+  Hash:      0xbdc46ffeabdfe48022c18431f7cb0cd70af7e3a4a2c...
+  Decrypted Payload:
+    • Agent:         0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+    • Tool:          github
+    • Action:        read
+    • Endpoint:      https://api.github.com/repos/anthropics/claude-code
+    • Status:        200
+    • Error Type:    (none)
+    • Latency:       142ms
+
+================================================================================
+✨ Query completed successfully
+```
+
+**Search audit entries from the last 2 hours:**
+```bash
+pnpm audit:search --from "2024-02-20T14:00:00" --to "2024-02-20T16:00:00" --limit 20
+```
+
+### Notes
+
+- **Localhost requirement:** Admin endpoint requires localhost access. Works via SSH tunnels or HTTP proxies with X-Forwarded-For headers.
+- **Privacy-first design:** Tool field is encrypted in payloads. Tool-based queries are not supported; use agent or time-range filters instead.
+- **Decryption:** The `--decrypt` flag requires the encryption key to be available in the proxy (automatically configured).
+- **Pagination:** Results limited to 100 entries max per query. Use `--limit` and multiple requests for larger result sets.
+- **Date format:** ISO 8601 (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss). Dates are treated as UTC.
+
+---
+
 ## MVP Limitations
 
 1. **HTTP-only** — WebSocket, gRPC, SSH not supported

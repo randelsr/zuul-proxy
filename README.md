@@ -159,16 +159,31 @@ curl -X POST http://localhost:8080/admin/rbac/revoke \
 }
 ```
 
-### Query Audit Logs
+### Query Audit Logs via CLI (Recommended)
 
-Search for audit entries by agent, tool, or time range:
+Use the `audit:search` CLI tool for convenient audit log queries:
+
+```bash
+# By agent
+pnpm audit:search --agent 0x1234567890123456789012345678901234567890
+
+# By agent with decryption
+pnpm audit:search --agent 0x1234567890123456789012345678901234567890 --decrypt
+
+# By time range (last 24 hours)
+pnpm audit:search --from 2024-02-20 --to 2024-02-21 --limit 50
+
+# Help
+pnpm audit:search --help
+```
+
+### Query Audit Logs via HTTP
+
+Or use raw HTTP requests:
 
 ```bash
 # By agent
 curl 'http://localhost:8080/admin/audit/search?agent=0x1234567890123456789012345678901234567890&limit=10'
-
-# By tool
-curl 'http://localhost:8080/admin/audit/search?tool=github&limit=5'
 
 # By time range (last hour)
 HOUR_AGO=$(($(date +%s) - 3600))
@@ -206,7 +221,9 @@ curl 'http://localhost:8080/admin/audit/search?agent=0x1234...&decrypt=true&limi
 - Pagination: default limit 50, max 100
 - Decryption requires `decrypt=true` parameter
 
-See [docs/api.md](./docs/api.md#admin-endpoints-localhost-only) for full admin API reference.
+**Full documentation:**
+- [**Admin API Reference**](./docs/api.md#admin-endpoints-localhost-only) — HTTP endpoint details
+- [**CLI Tool Guide**](./docs/api.md#admin-cli-tool-auditsearch) — `pnpm audit:search` command reference
 
 ## Development
 
