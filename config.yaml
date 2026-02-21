@@ -56,10 +56,11 @@ roles:
         actions: [read, create]
 
 # Blockchain configuration
-# ADI Chain - UAE institutional L2 (ZKsync-based, EVM-compatible)
+# ADI Chain Testnet - UAE institutional L2 (ZKsync-based, EVM-compatible)
+# Testnet faucet: https://faucet.ab.testnet.adifoundation.ai/
 chain:
   name: adi
-  chainId: 36900
+  chainId: 99999
   rpcUrl: ${ADI_RPC_URL}
   rbacContractAddress: ${RBAC_CONTRACT_ADDRESS}
   auditContractAddress: ${AUDIT_CONTRACT_ADDRESS}

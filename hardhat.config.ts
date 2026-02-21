@@ -18,7 +18,13 @@ const config: HardhatUserConfig = {
       type: "http",
       url: "http://127.0.0.1:8545",
     },
-    adi: {
+    adiTestnet: {
+      type: "http",
+      url: process.env.ADI_TESTNET_RPC_URL ?? "https://rpc.ab.testnet.adifoundation.ai/",
+      accounts: process.env.ADI_PRIVATE_KEY ? [process.env.ADI_PRIVATE_KEY] : [],
+      chainId: 99999,
+    },
+    adiMainnet: {
       type: "http",
       url: process.env.ADI_RPC_URL ?? "https://rpc.adifoundation.ai/",
       accounts: process.env.ADI_PRIVATE_KEY ? [process.env.ADI_PRIVATE_KEY] : [],
