@@ -7,7 +7,7 @@ import type { Result } from '../types.js';
 import { getLogger } from '../logging.js';
 import type { AppConfig } from '../config/types.js';
 
-const logger = getLogger('chain:hedera');
+const logger = getLogger('chain:evm');
 
 /**
  * EVM-compatible chain driver
@@ -77,7 +77,7 @@ export class HederaChainDriver implements ChainDriver {
 
     logger.info(
       { rpcUrl: this.rpcUrl, chainId: this.chainId, rbacContractAddress: this.rbacContractAddress },
-      'HederaChainDriver initialized'
+      'EVM chain driver initialized'
     );
   }
 
@@ -96,7 +96,7 @@ export class HederaChainDriver implements ChainDriver {
     try {
       logger.debug(
         { contractAddress, functionName, chainId: this.chainId },
-        'Reading from Hedera contract'
+        'Reading from contract'
       );
 
       // Encode the function call
@@ -143,17 +143,17 @@ export class HederaChainDriver implements ChainDriver {
           functionName,
           error: error instanceof Error ? error.message : String(error),
         },
-        'Hedera contract read failed'
+        'Contract read failed'
       );
 
       return {
         ok: false,
         error: new ServiceError(
-          'Hedera contract call failed',
+          'Contract call failed',
           -32022, // SERVICE_UNAVAILABLE
           503,
           'service/unavailable',
-          { reason: 'Hedera RPC call failed' }
+          { reason: 'RPC call failed' }
         ),
       };
     }
@@ -179,7 +179,7 @@ export class HederaChainDriver implements ChainDriver {
           argsCount: args.length,
           argsTypes: args.map((a) => typeof a),
         },
-        'Writing to Hedera contract'
+        'Writing to contract'
       );
 
       // Check if wallet client is available (requires signer key)
@@ -219,7 +219,7 @@ export class HederaChainDriver implements ChainDriver {
 
       const txHash = await (this.walletClient as any).writeContract(callConfig);
 
-      logger.info({ txHash, contractAddress, functionName }, 'Hedera transaction submitted');
+      logger.info({ txHash, contractAddress, functionName }, 'Transaction submitted');
 
       return { ok: true, value: txHash as unknown as TransactionHash };
     } catch (error) {
@@ -230,13 +230,13 @@ export class HederaChainDriver implements ChainDriver {
           functionName,
           error: errorMsg,
         },
-        'Hedera contract write failed'
+        'Contract write failed'
       );
 
       return {
         ok: false,
         error: new ServiceError(
-          'Hedera contract write failed',
+          'Contract write failed',
           -32021, // SERVICE_TIMEOUT
           504,
           'service/timeout',
@@ -247,7 +247,7 @@ export class HederaChainDriver implements ChainDriver {
   }
 
   /**
-   * Get agent's role from Hedera RBAC contract
+   * Get agent's role from RBAC contract
    * Calls RBAC.getAgentRole(agent) to get roleId and isActive status
    * Then looks up the corresponding role definition from config.yaml
    */
@@ -255,7 +255,7 @@ export class HederaChainDriver implements ChainDriver {
     try {
       logger.debug(
         { agent, chainId: this.chainId, rbacContractAddress: this.rbacContractAddress },
-        'Reading agent role from Hedera RBAC'
+        'Reading agent role from RBAC contract'
       );
 
       if (!this.rbacContractAddress || this.rbacContractAddress === '') {
@@ -288,7 +288,7 @@ export class HederaChainDriver implements ChainDriver {
 
       logger.debug(
         { agent, roleIdHash, isActive },
-        'Retrieved agent role from Hedera RBAC contract'
+        'Retrieved agent role from RBAC contract'
       );
 
       // Find the matching role from config.yaml by role ID hash
@@ -326,7 +326,7 @@ export class HederaChainDriver implements ChainDriver {
           chainId: this.chainId,
           error: error instanceof Error ? error.message : String(error),
         },
-        'Failed to read agent role from Hedera'
+        'Failed to read agent role from RBAC contract'
       );
 
       throw error;
