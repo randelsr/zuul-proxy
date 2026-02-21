@@ -150,7 +150,20 @@ async function main() {
         functionName: "setAgentRole",
         args: [agentAddress, roleIdHash],
       });
-      console.log(`   ✓ Registered (tx: ${registerHash})`);
+      console.log(`   ⏳ Tx submitted (${registerHash}), waiting for confirmation...`);
+
+      // Wait for transaction to be mined and check status
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: registerHash,
+        timeout: 60_000,
+      });
+
+      if (receipt.status === "reverted") {
+        console.error(`   ✗ Transaction reverted!`);
+        throw new Error(`Registration transaction reverted for ${agentAddress}`);
+      }
+
+      console.log(`   ✓ Confirmed in block ${receipt.blockNumber}`);
       console.log("");
 
       // Store agent info for demo
@@ -198,7 +211,20 @@ async function main() {
           functionName: "setAgentRole",
           args: [externalAgent.address, roleIdHash],
         });
-        console.log(`   ✓ Registered (tx: ${registerHash})`);
+        console.log(`   ⏳ Tx submitted (${registerHash}), waiting for confirmation...`);
+
+        // Wait for transaction to be mined and check status
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: registerHash,
+          timeout: 60_000,
+        });
+
+        if (receipt.status === "reverted") {
+          console.error(`   ✗ Transaction reverted!`);
+          throw new Error(`Registration transaction reverted for ${externalAgent.address}`);
+        }
+
+        console.log(`   ✓ Confirmed in block ${receipt.blockNumber}`);
         console.log("");
 
         // Store external agent info

@@ -28,15 +28,8 @@ async function main() {
   const RBAC_ABI = [
     {
       inputs: [],
-      name: 'owner',
+      name: 'proxy',
       outputs: [{ internalType: 'address', name: '', type: 'address' }],
-      stateMutability: 'view',
-      type: 'function',
-    },
-    {
-      inputs: [{ internalType: 'address', name: 'agent', type: 'address' }],
-      name: 'revokedAgents',
-      outputs: [{ internalType: 'bool', name: '', type: 'bool' }],
       stateMutability: 'view',
       type: 'function',
     },
@@ -53,29 +46,16 @@ async function main() {
   ] as const;
 
   try {
-    // Check owner
-    const owner = await client.readContract({
+    // Check proxy (contract admin)
+    const proxy = await client.readContract({
       address: rbacAddress as `0x${string}`,
       abi: RBAC_ABI,
-      functionName: 'owner',
+      functionName: 'proxy',
     });
-    console.log(`✓ Owner: ${owner}`);
-    console.log(`  Is agent the owner? ${owner.toLowerCase() === agentAddress.toLowerCase()}`);
+    console.log(`✓ Proxy (admin): ${proxy}`);
+    console.log(`  Is agent the proxy? ${(proxy as string).toLowerCase() === agentAddress.toLowerCase()}`);
   } catch (error) {
-    console.log(`✗ Could not read owner: ${String(error)}`);
-  }
-
-  try {
-    // Check if agent is revoked
-    const isRevoked = await client.readContract({
-      address: rbacAddress as `0x${string}`,
-      abi: RBAC_ABI,
-      functionName: 'revokedAgents',
-      args: [agentAddress as `0x${string}`],
-    });
-    console.log(`\n✓ Agent revoked status: ${isRevoked}`);
-  } catch (error) {
-    console.log(`✗ Could not read revoked status: ${String(error)}`);
+    console.log(`✗ Could not read proxy: ${String(error)}`);
   }
 
   try {
