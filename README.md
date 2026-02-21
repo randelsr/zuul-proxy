@@ -17,6 +17,11 @@ pnpm contracts:dev     # 3. Start Hardhat (Terminal 1)
 
 # Then in another terminal:
 pnpm setup:dev         # 4. Deploy contracts & register agents (Terminal 2)
+
+# Optional: Add external agents (third-party wallet addresses)
+# Edit scripts/register-agents.ts and add to EXTERNAL_AGENTS array, then:
+# npx tsx scripts/register-agents.ts
+
 pnpm dev               # 5. Start Zuul Proxy (Terminal 3)
 
 # Then in another terminal:
@@ -61,7 +66,7 @@ Start here:
 **New to Zuul?** Start with **[GETTING_STARTED.md](./GETTING_STARTED.md)** — Complete guide with learning paths for different roles
 
 Then explore:
-- **[Agent Setup](./docs/agents.md)** — Registering test agents on-chain and managing roles
+- **[Agent Setup](./docs/agents.md)** — Registering agents on-chain (including external third-party agents)
 - **[Architecture](./docs/architecture.md)** — System design, module breakdown, trust boundaries
 - **[API Reference](./docs/api.md)** — Endpoint specs, error codes, signature format
 - **[Deployment](./docs/deployment.md)** — Configuration, secrets, multi-chain setup

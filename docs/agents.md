@@ -165,7 +165,42 @@ See `demo/agent.ts` for signature generation code.
 
 ## Adding New Agents
 
-### For Local Development
+### External Agents (Third-Party)
+
+To register an external agent where you only have the **public wallet address** (not the private key), edit `scripts/register-agents.ts` and add the address to the `EXTERNAL_AGENTS` array:
+
+```typescript
+// External agents (public addresses only - no private keys needed for registration)
+// These are third-party agents that need RBAC access but aren't Hardhat test accounts
+// Role name must match a role.name in config.yaml (case-insensitive)
+const EXTERNAL_AGENTS: Array<{ address: `0x${string}`; roleName: string }> = [
+  { address: "0xAfAcD4d602A2c870b58808316505eC0BE0bf5C5B", roleName: "Developer" },
+  { address: "0x1234567890abcdef...", roleName: "Administrator" },
+  // Add more external agents here as needed
+];
+```
+
+Then re-run agent registration:
+
+```bash
+npx tsx scripts/register-agents.ts
+```
+
+The script will:
+1. Register Hardhat test accounts (paired with roles from config.yaml in order)
+2. Register external agents (matched to roles by name)
+3. Save all agent info to `.agents.json`
+
+**Output example:**
+```
+📝 Registering 1 external agents:
+
+   Agent 3: 0xAfAcD4d602A2c870b58808316505eC0BE0bf5C5B
+   Role: Developer (external)
+   ✓ Registered (tx: 0x287ed...)
+```
+
+### Hardhat Test Accounts (Local Development)
 
 Add new test accounts to `scripts/setup-dev-agents.ts`:
 

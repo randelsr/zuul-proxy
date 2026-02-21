@@ -32,6 +32,14 @@ const HARDHAT_TEST_ACCOUNTS = [
   "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c8aaf07d92b8a761", // Account 5
 ];
 
+// External agents (public addresses only - no private keys needed for registration)
+// These are third-party agents that need RBAC access but aren't Hardhat test accounts
+// Role name must match a role.name in config.yaml
+const EXTERNAL_AGENTS: Array<{ address: `0x${string}`; roleName: string }> = [
+  { address: "0xAfAcD4d602A2c870b58808316505eC0BE0bf5C5B", roleName: "Developer" }, // Smol Agent
+  // Add more external agents here as needed
+];
+
 // RBAC contract ABI (minimal, for setAgentRole only)
 const RBAC_ABI = [
   {
@@ -143,6 +151,57 @@ async function main() {
     }
   }
 
+  // Register external agents (public addresses only)
+  if (EXTERNAL_AGENTS.length > 0) {
+    console.log(`\n📝 Registering ${EXTERNAL_AGENTS.length} external agents:\n`);
+
+    let externalIndex = Object.keys(agentInfo).length + 1;
+    for (const externalAgent of EXTERNAL_AGENTS) {
+      // Find the role by name in config
+      const role = config.roles.find(
+        (r: any) => r.name.toLowerCase() === externalAgent.roleName.toLowerCase()
+      );
+
+      if (!role) {
+        console.warn(
+          `   ⚠️  Skipping ${externalAgent.address}: role "${externalAgent.roleName}" not found in config.yaml`
+        );
+        continue;
+      }
+
+      const roleIdHash = keccak256(toHex(role.id, { size: 32 }));
+
+      console.log(`   Agent ${externalIndex}: ${externalAgent.address}`);
+      console.log(`   Role: ${role.name} (external)`);
+
+      try {
+        const registerHash = await walletClient.writeContract({
+          address: rbacAddress as `0x${string}`,
+          abi: RBAC_ABI,
+          functionName: "setAgentRole",
+          args: [externalAgent.address, roleIdHash],
+        });
+        console.log(`   ✓ Registered (tx: ${registerHash})`);
+        console.log("");
+
+        // Store external agent info
+        agentInfo[externalIndex] = {
+          address: externalAgent.address,
+          hardhatAccountIndex: null, // No Hardhat account for external agents
+          role: role.name,
+          permissions: role.permissions,
+          external: true,
+        };
+        externalIndex++;
+      } catch (error) {
+        console.error(
+          `   ✗ Error: ${error instanceof Error ? error.message : String(error)}`
+        );
+        throw error;
+      }
+    }
+  }
+
   console.log("✅ Agent registration complete!\n");
   console.log("📋 TEST AGENTS:");
   console.log("==============\n");
@@ -150,7 +209,11 @@ async function main() {
   for (const [key, agent] of Object.entries(agentInfo)) {
     console.log(`Agent ${key}: ${agent.address}`);
     console.log(`  Role: ${agent.role}`);
-    console.log(`  ℹ️  Hardhat Account #${agent.hardhatAccountIndex}`);
+    if (agent.external) {
+      console.log(`  ℹ️  External agent (third-party)`);
+    } else {
+      console.log(`  ℹ️  Hardhat Account #${agent.hardhatAccountIndex}`);
+    }
     console.log("  Permissions:");
     agent.permissions.forEach((perm: any) => {
       console.log(`    • ${perm.tool}: ${perm.actions.join(", ")}`);

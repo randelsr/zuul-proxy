@@ -10,13 +10,12 @@ import type { AppConfig } from '../config/types.js';
 const logger = getLogger('chain:hedera');
 
 /**
- * Hedera testnet chain driver
- * Uses viem to interact with Hedera JSON-RPC relay
- * Chain ID: 295 (Hedera testnet)
+ * EVM-compatible chain driver
+ * Uses viem to interact with any EVM JSON-RPC endpoint
+ * Supports: Hedera, ADI Chain, local Hardhat
  */
 export class HederaChainDriver implements ChainDriver {
-  // Use 31337 for local Hardhat, 295 for Hedera testnet
-  private readonly chainId: ChainId = (process.env.HARDHAT_SIGNER_KEY ? 31337 : 295) as ChainId;
+  private readonly chainId: ChainId;
   private readonly rpcUrl: string;
   private readonly publicClient: PublicClient;
   private readonly walletClient: WalletClient | null;
@@ -24,7 +23,9 @@ export class HederaChainDriver implements ChainDriver {
   private readonly rbacContractAddress: string;
 
   constructor(rpcUrl?: string, config?: AppConfig, publicClient?: PublicClient) {
-    this.rpcUrl = rpcUrl || process.env.HEDERA_RPC_URL || 'https://testnet.hashio.io/api';
+    // Get chainId from config, fallback to env-based detection for backwards compatibility
+    this.chainId = (config?.chain?.chainId ?? (process.env.HARDHAT_SIGNER_KEY ? 31337 : 295)) as ChainId;
+    this.rpcUrl = rpcUrl || process.env.RPC_URL || process.env.HEDERA_RPC_URL || 'https://testnet.hashio.io/api';
     // Ensure roles have isActive set (defaults to true for config-defined roles)
     this.roles = (config?.roles || []).map(
       (role) =>
@@ -40,15 +41,14 @@ export class HederaChainDriver implements ChainDriver {
       this.publicClient = publicClient;
       this.walletClient = null;
     } else {
-      // Create viem clients for Hedera testnet
-      // Using generic chain config since viem 2.4.0 doesn't have hederaTestnet built-in
-      // Use chainId 31337 for local Hardhat, 295 for Hedera testnet
+      // Create viem clients - supports Hedera, ADI, or local Hardhat
       const isLocalHardhat = !!process.env.HARDHAT_SIGNER_KEY;
+      const chainName = config?.chain?.name || (isLocalHardhat ? 'hardhat' : 'hedera');
       const chainConfig = {
-        id: isLocalHardhat ? 31337 : 295,
-        name: isLocalHardhat ? 'Hardhat Local' : 'Hedera Testnet',
-        network: isLocalHardhat ? 'hardhat' : 'hedera-testnet',
-        nativeCurrency: { name: isLocalHardhat ? 'ETH' : 'HBAR', symbol: isLocalHardhat ? 'ETH' : 'HBAR', decimals: 18 },
+        id: this.chainId,
+        name: isLocalHardhat ? 'Local Hardhat' : chainName.toUpperCase(),
+        network: chainName,
+        nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
         rpcUrls: {
           default: { http: [this.rpcUrl] },
         },

@@ -56,12 +56,11 @@ roles:
         actions: [read, create]
 
 # Blockchain configuration
-# For local dev: use 'hedera' with Hardhat (auto-detects chainId 31337)
-# For ADI testnet: change to 'adi' with chainId 99999
+# Set CHAIN_NAME env var to switch: 'local' for Hardhat, 'adi' for testnet
 chain:
-  name: hedera
-  chainId: 295
-  rpcUrl: ${ADI_RPC_URL}
+  name: ${CHAIN_NAME}
+  chainId: ${CHAIN_ID}
+  rpcUrl: ${RPC_URL}
   rbacContractAddress: ${RBAC_CONTRACT_ADDRESS}
   auditContractAddress: ${AUDIT_CONTRACT_ADDRESS}
 

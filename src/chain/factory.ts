@@ -34,8 +34,8 @@ export function createChainDriver(config: AppConfig): ChainDriver {
       return new HederaChainDriver(rpcUrl, config);
 
     case 'adi':
-      logger.info({ chainId, rpcUrl }, 'Using EVMChainDriver for ADI Chain');
-      return new EVMChainDriver('adi', rpcUrl, chainId, config);
+      logger.info({ chainId, rpcUrl }, 'Using HederaChainDriver for ADI Chain (EVM-compatible)');
+      return new HederaChainDriver(rpcUrl, config);
 
     case 'base':
     case 'arbitrum':

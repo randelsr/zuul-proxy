@@ -48,5 +48,26 @@
         ]
       }
     ]
+  },
+  "3": {
+    "address": "0xAfAcD4d602A2c870b58808316505eC0BE0bf5C5B",
+    "hardhatAccountIndex": null,
+    "role": "Developer",
+    "permissions": [
+      {
+        "tool": "github",
+        "actions": [
+          "read",
+          "update"
+        ]
+      },
+      {
+        "tool": "slack",
+        "actions": [
+          "read"
+        ]
+      }
+    ],
+    "external": true
   }
 }

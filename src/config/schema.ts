@@ -54,7 +54,7 @@ const RoleConfigSchema = z.object({
 
 const ChainConfigSchema = z.object({
   name: z.enum(['adi', 'hedera', 'base', 'arbitrum', 'optimism', 'local']),
-  chainId: z.number().int().positive(),
+  chainId: z.coerce.number().int().positive(),  // coerce string from env var
   rpcUrl: z.string().url('Invalid RPC URL'),
   rbacContractAddress: z.string().min(1, 'RBAC contract address required'),
   auditContractAddress: z.string().min(1, 'Audit contract address required'),
