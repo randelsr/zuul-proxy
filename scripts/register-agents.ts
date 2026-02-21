@@ -69,16 +69,33 @@ async function main() {
     process.exit(1);
   }
 
+  // Get RPC URL from environment (default to local Hardhat)
+  const rpcUrl = process.env.RPC_URL || "http://127.0.0.1:8545";
+  const isLocal = rpcUrl.includes("127.0.0.1") || rpcUrl.includes("localhost");
+
+  console.log(`📡 RPC URL: ${rpcUrl}`);
+  console.log(`📍 Mode: ${isLocal ? "Local Hardhat" : "Testnet"}\n`);
+
   // Create viem clients
   const publicClient = createPublicClient({
-    transport: http("http://127.0.0.1:8545"),
+    transport: http(rpcUrl),
   });
 
-  // Get signer (use first Hardhat test account as admin)
-  const signerAccount = privateKeyToAccount(HARDHAT_TEST_ACCOUNTS[0]);
+  // Get signer - use env var for testnet, hardhat account for local
+  const signerKey = isLocal
+    ? HARDHAT_TEST_ACCOUNTS[0]
+    : process.env.PROXY_SIGNER_KEY || process.env.HEDERA_PRIVATE_KEY;
+
+  if (!signerKey) {
+    console.error("❌ Error: Missing signer key");
+    console.error("   Set PROXY_SIGNER_KEY in .env for testnet deployments");
+    process.exit(1);
+  }
+
+  const signerAccount = privateKeyToAccount(signerKey as `0x${string}`);
   const walletClient = createWalletClient({
     account: signerAccount,
-    transport: http("http://127.0.0.1:8545"),
+    transport: http(rpcUrl),
   });
 
   console.log(`📍 Admin signer: ${signerAccount.address}`);

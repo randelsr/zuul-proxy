@@ -4,6 +4,10 @@
  * Hardhat uses deterministic test accounts derived from its own mechanism.
  * This script reads .agents.json and shows which private keys map to each agent.
  *
+ * NOTE: These are LOCAL DEVELOPMENT accounts only!
+ * For testnet (Hedera, ADI, etc.), use your own private key:
+ *   export AGENT_PRIVATE_KEY="0x_your_testnet_private_key"
+ *
  * Usage: npx tsx scripts/get-test-account-keys.ts
  */
 
@@ -76,6 +80,11 @@ async function main() {
   console.log('💡 To run the demo with Agent 2:\n');
   console.log(`export AGENT_PRIVATE_KEY="${HARDHAT_TEST_ACCOUNTS[1].privateKey}"`);
   console.log('pnpm demo\n');
+
+  console.log('⚠️  TESTNET NOTE:');
+  console.log('   These accounts are for LOCAL HARDHAT development only.');
+  console.log('   For Hedera/ADI testnet, use your own funded private key:');
+  console.log('   export AGENT_PRIVATE_KEY="0x_your_testnet_private_key"\n');
 }
 
 main().catch((error) => {

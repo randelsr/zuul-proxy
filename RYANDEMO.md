@@ -1,6 +1,12 @@
+rm -rf /Users/nullfox/repos/zuul-proxy/ignition/deployments/chain-31337
+
 pnpm contracts:build
 pnpm contracts:dev
+
+
 pnpm hardhat ignition deploy ignition/modules/Zuul.ts --network localhost
+pnpm contracts:deploy:adi   
+
 <save contract addresses to .env>
 npx tsx scripts/register-agents.ts
 pnpm dev
@@ -23,3 +29,9 @@ npx tsx scripts/get-test-account-keys.ts
 
   Search on custom proxy:
   pnpm audit:search --agent 0x... --proxy-url http://prod-proxy:8080
+
+
+
+  curl -X POST http://localhost:8080/admin/rbac/revoke \
+    -H 'Content-Type: application/json' \
+    -d '{"agent_address": "0xAfAcD4d602A2c870b58808316505eC0BE0bf5C5B"}'

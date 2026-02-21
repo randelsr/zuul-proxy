@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { HardhatUserConfig } from "hardhat/types";
 import hardhatToolboxViem from "@nomicfoundation/hardhat-toolbox-viem";
 import hardhatIgnition from "@nomicfoundation/hardhat-ignition";
@@ -33,8 +34,8 @@ const config: HardhatUserConfig = {
     hederaTestnet: {
       type: "http",
       url: process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api",
-      accounts: process.env.HEDERA_PRIVATE_KEY ? [process.env.HEDERA_PRIVATE_KEY] : [],
-      chainId: 295,
+      accounts: process.env.HEDERA_PRIVATE_KEY ? [process.env.HEDERA_PRIVATE_KEY] : process.env.PROXY_SIGNER_KEY ? [process.env.PROXY_SIGNER_KEY] : [],
+      chainId: 296,
     },
     baseTestnet: {
       type: "http",

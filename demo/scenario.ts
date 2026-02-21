@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { createInterface } from 'readline/promises';
 import { createPublicClient, http } from 'viem';
 import { ZuulAgent } from './agent.js';
 import { EncryptionService } from '../src/audit/encryption.js';
@@ -13,6 +14,20 @@ import { EncryptionService } from '../src/audit/encryption.js';
  * 5. Demonstrate governance metadata
  * 6. Verify audit trail information
  */
+
+// Helper to prompt user to continue
+async function waitForEnter(nextStep: string): Promise<void> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  console.log('\n' + '─'.repeat(60));
+  console.log(`⏭️  NEXT: ${nextStep}`);
+  await rl.question('   Press ENTER to continue...');
+  rl.close();
+  console.log('');
+}
+
 export async function runDemoScenario(): Promise<void> {
   console.log('🚀 Zuul Proxy Demo Scenario');
   console.log('='.repeat(60));
@@ -67,7 +82,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 1: Discover available tools
     // ========================================================================
 
-    console.log('\n📍 STEP 1: Discover Available Tools');
+    await waitForEnter('STEP 1 - Discover available tools via JSON-RPC');
+    console.log('📍 STEP 1: Discover Available Tools');
     console.log('-'.repeat(60));
 
     let tools;
@@ -91,19 +107,19 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 1.5: Configure Demo Activity Level
     // ========================================================================
 
-    console.log('\n📍 STEP 1.5: Configure Demo Activity Level');
+    await waitForEnter('STEP 1.5 - Configure how many API calls to make');
+    console.log('📍 STEP 1.5: Configure Demo Activity Level');
     console.log('-'.repeat(60));
 
-    const readline = await import('readline/promises');
-    const rl = readline.createInterface({
+    const rl2 = createInterface({
       input: process.stdin,
       output: process.stdout,
     });
 
-    const numCallsStr = await rl.question(
+    const numCallsStr = await rl2.question(
       '\nHow many tool calls should we make? (default: 22): '
     );
-    rl.close();
+    rl2.close();
 
     const numCalls = parseInt(numCallsStr) || 22;
     console.log(`✓ Will make ${numCalls} tool calls to generate audit activity\n`);
@@ -112,7 +128,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 2: Call GitHub tool (read endpoint)
     // ========================================================================
 
-    console.log(`\n📍 STEP 2: Call GitHub API (GET /repos) - ${numCalls}x`);
+    await waitForEnter(`STEP 2 - Make ${numCalls} GitHub API calls (authorized action)`);
+    console.log(`📍 STEP 2: Call GitHub API (GET /repos) - ${numCalls}x`);
     console.log('-'.repeat(60));
 
     let successCount = 0;
@@ -151,7 +168,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 3: Try unauthorized action (POST = create)
     // ========================================================================
 
-    console.log('\n📍 STEP 3: Try POST (unauthorized action)');
+    await waitForEnter('STEP 3 - Attempt unauthorized action (POST should be denied)');
+    console.log('📍 STEP 3: Try POST (unauthorized action)');
     console.log('-'.repeat(60));
 
     try {
@@ -174,7 +192,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 4: Demonstrate governance metadata
     // ========================================================================
 
-    console.log('\n📍 STEP 4: Governance Metadata Deep Dive');
+    await waitForEnter('STEP 4 - Review governance metadata structure');
+    console.log('📍 STEP 4: Governance Metadata Deep Dive');
     console.log('-'.repeat(60));
 
     console.log('ℹ All requests include _governance metadata:');
@@ -192,7 +211,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 5: Verify audit trail
     // ========================================================================
 
-    console.log('\n📍 STEP 5: Audit Trail Verification');
+    await waitForEnter('STEP 5 - Explain audit trail verification');
+    console.log('📍 STEP 5: Audit Trail Verification');
     console.log('-'.repeat(60));
 
     console.log('ℹ All requests audited to blockchain:');
@@ -206,7 +226,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 6: Emergency revoke agent
     // ========================================================================
 
-    console.log('\n📍 STEP 6: Emergency Revoke Agent');
+    await waitForEnter('STEP 6 - Emergency revoke agent (admin removes access)');
+    console.log('📍 STEP 6: Emergency Revoke Agent');
     console.log('-'.repeat(60));
 
     const revokeAgentAddress = agentAddress || agent.getAddress();
@@ -231,11 +252,12 @@ export async function runDemoScenario(): Promise<void> {
       // Emergency revoke
       console.log(`\n[6.2] Admin calls /admin/rbac/revoke for agent ${revokeAgentAddress.slice(0, 10)}...`);
 
+      const revokeHost = new URL(proxyUrl).host;
       const revokeResp = await fetch(`${proxyUrl}/admin/rbac/revoke`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'host': 'localhost:8080',
+          'host': revokeHost,
         },
         body: JSON.stringify({ agent_address: revokeAgentAddress }),
       });
@@ -309,7 +331,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 7: Full Audit Log Dump (Direct Blockchain Query)
     // ========================================================================
 
-    console.log('\n📍 STEP 7: Full Audit Log Dump');
+    await waitForEnter('STEP 7 - Query and decrypt all audit entries from blockchain');
+    console.log('📍 STEP 7: Full Audit Log Dump');
     console.log('-'.repeat(60));
     console.log('ℹ Querying all audit entries directly from blockchain...\n');
 
@@ -322,15 +345,17 @@ export async function runDemoScenario(): Promise<void> {
       const envPath = path.default.join(process.cwd(), '.env');
       const envConfig = dotenv.config({ path: envPath });
 
-      const rpcUrl = process.env.HEDERA_RPC_URL || envConfig.parsed?.HEDERA_RPC_URL || 'http://127.0.0.1:8545';
+      const rpcUrl = process.env.RPC_URL || envConfig.parsed?.RPC_URL || 'http://127.0.0.1:8545';
       const auditContractAddress = process.env.AUDIT_CONTRACT_ADDRESS || envConfig.parsed?.AUDIT_CONTRACT_ADDRESS || '';
+      const chainId = parseInt(process.env.CHAIN_ID || envConfig.parsed?.CHAIN_ID || '31337', 10);
+      const chainName = process.env.CHAIN_NAME || envConfig.parsed?.CHAIN_NAME || 'hardhat';
 
       // Create public client for reading from blockchain
       const client = createPublicClient({
         chain: {
-          id: 31337,
-          name: 'Hardhat',
-          network: 'hardhat',
+          id: chainId,
+          name: chainName,
+          network: chainName,
           nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
           rpcUrls: { default: { http: [rpcUrl] } },
         } as any,
@@ -446,7 +471,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 8: Admin Endpoints - Audit Search and Query
     // ========================================================================
 
-    console.log('\n📍 STEP 8: Admin Audit Search Endpoints');
+    await waitForEnter('STEP 8 - Test admin audit search API endpoints');
+    console.log('📍 STEP 8: Admin Audit Search Endpoints');
     console.log('-'.repeat(60));
     console.log('ℹ Note: Admin endpoints are localhost-only for security\n');
 
@@ -461,7 +487,7 @@ export async function runDemoScenario(): Promise<void> {
       try {
         const searchResp1 = await fetch(
           `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}`,
-          { headers: { host: 'localhost:8080' } }
+          { headers: { host: proxyHost } }
         );
 
         if (searchResp1.ok) {
@@ -483,7 +509,7 @@ export async function runDemoScenario(): Promise<void> {
       try {
         const searchResp2 = await fetch(
           `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}&decrypt=true`,
-          { headers: { host: 'localhost:8080' } }
+          { headers: { host: proxyHost } }
         );
 
         if (searchResp2.ok) {
@@ -515,7 +541,7 @@ export async function runDemoScenario(): Promise<void> {
 
         const searchResp3 = await fetch(
           `${adminBaseUrl}/admin/audit/search?startTime=${startTime}&endTime=${endTime}`,
-          { headers: { host: 'localhost:8080' } }
+          { headers: { host: proxyHost } }
         );
 
         if (searchResp3.ok) {
@@ -536,7 +562,8 @@ export async function runDemoScenario(): Promise<void> {
     // STEP 9: Summary
     // ========================================================================
 
-    console.log('\n' + '='.repeat(60));
+    await waitForEnter('STEP 9 - View demo summary and key takeaways');
+    console.log('='.repeat(60));
     console.log('✅ Demo Scenario Complete');
     console.log('='.repeat(60));
 

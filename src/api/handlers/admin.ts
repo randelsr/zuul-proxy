@@ -301,10 +301,12 @@ export async function performEmergencyRevoke(
 
     // Bypass chainDriver and call viem directly to debug
     // This helps isolate whether the issue is in HederaChainDriver or viem itself
-    const { createWalletClient, http, getAddress } = await import('viem');
+    const { createWalletClient, createPublicClient, http, getAddress } = await import('viem');
     const { privateKeyToAccount } = await import('viem/accounts');
 
-    const debugSigner = process.env.HARDHAT_SIGNER_KEY || process.env.PROXY_SIGNER_KEY;
+    // For testnet: use PROXY_SIGNER_KEY (contract deployer/owner)
+    // For local: fall back to HARDHAT_SIGNER_KEY
+    const debugSigner = process.env.PROXY_SIGNER_KEY || process.env.HARDHAT_SIGNER_KEY;
     if (!debugSigner) {
       return {
         ok: false,
@@ -313,9 +315,13 @@ export async function performEmergencyRevoke(
     }
 
     const debugAccount = privateKeyToAccount(debugSigner as `0x${string}`);
+    const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
     const debugWalletClient = createWalletClient({
       account: debugAccount,
-      transport: http('http://127.0.0.1:8545', { timeout: 60_000 }),
+      transport: http(rpcUrl, { timeout: 60_000 }),
+    });
+    const debugPublicClient = createPublicClient({
+      transport: http(rpcUrl, { timeout: 60_000 }),
     });
 
     const REVOKE_ABI = [
@@ -380,7 +386,23 @@ export async function performEmergencyRevoke(
         args: [checksumAgentAddress],
       });
 
-      logger.info({ txHash: debugTxHash }, 'Direct viem call succeeded');
+      logger.info({ txHash: debugTxHash }, 'Transaction submitted, waiting for confirmation...');
+
+      // Wait for transaction to be mined before invalidating cache
+      const receipt = await debugPublicClient.waitForTransactionReceipt({
+        hash: debugTxHash as `0x${string}`,
+        timeout: 60_000,
+      });
+
+      if (receipt.status === 'reverted') {
+        logger.error({ txHash: debugTxHash, receipt }, 'Transaction reverted on-chain');
+        return {
+          ok: false,
+          error: new ServiceError('Revocation transaction reverted', -32022, 503, 'service/unavailable'),
+        };
+      }
+
+      logger.info({ txHash: debugTxHash, blockNumber: receipt.blockNumber }, 'Transaction confirmed');
 
       const result = {
         ok: true as const,
