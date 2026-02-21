@@ -56,11 +56,11 @@ roles:
         actions: [read, create]
 
 # Blockchain configuration
-# ADI Chain Testnet - UAE institutional L2 (ZKsync-based, EVM-compatible)
-# Testnet faucet: https://faucet.ab.testnet.adifoundation.ai/
+# For local dev: use 'hedera' with Hardhat (auto-detects chainId 31337)
+# For ADI testnet: change to 'adi' with chainId 99999
 chain:
-  name: adi
-  chainId: 99999
+  name: hedera
+  chainId: 295
   rpcUrl: ${ADI_RPC_URL}
   rbacContractAddress: ${RBAC_CONTRACT_ADDRESS}
   auditContractAddress: ${AUDIT_CONTRACT_ADDRESS}
