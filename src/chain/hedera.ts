@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, type Abi, type PublicClient, type WalletClient, keccak256, encodeFunctionData, decodeFunctionResult, toHex } from 'viem';
+import { createPublicClient, createWalletClient, http, type Abi, type PublicClient, type WalletClient, keccak256, encodeFunctionData, decodeFunctionResult, toHex, getAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { ChainDriver } from './driver.js';
 import type { AgentAddress, ChainId, Role, RoleId, TransactionHash } from '../types.js';
@@ -110,10 +110,9 @@ export class HederaChainDriver implements ChainDriver {
         args: args as readonly unknown[],
       });
 
-      // Make the static call (view function)
+      // Make the static call (view function) - do NOT specify account for view functions
       const result = await this.publicClient.call({
-        account: '0x0000000000000000000000000000000000000000',
-        to: contractAddress as `0x${string}`,
+        to: getAddress(contractAddress),
         data: data,
       });
 

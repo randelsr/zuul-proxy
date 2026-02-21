@@ -113,12 +113,12 @@ export async function performAuditSearch(
 
     // Determine query path based on filters
     if (params.agent) {
-      // Query by agent
+      // Query by agent - unbounded (get all results for this agent)
       const agentResult = await chainDriver.callContract<unknown>(
         auditContractAddress,
         AUDIT_ABI,
         'getEntriesByAgent',
-        [params.agent, BigInt(params.offset || 0), BigInt(params.limit || 50)]
+        [params.agent, BigInt(0), BigInt(100)]
       );
 
       if (!agentResult.ok) {
@@ -131,7 +131,7 @@ export async function performAuditSearch(
 
       entries = agentResult.value as readonly unknown[];
     } else if (params.startTime !== undefined && params.endTime !== undefined) {
-      // Query by time range
+      // Query by time range - unbounded (get all results in time range)
       const timeResult = await chainDriver.callContract<unknown>(
         auditContractAddress,
         AUDIT_ABI,
@@ -139,8 +139,8 @@ export async function performAuditSearch(
         [
           BigInt(params.startTime),
           BigInt(params.endTime),
-          BigInt(params.offset || 0),
-          BigInt(params.limit || 50),
+          BigInt(0),
+          BigInt(100),
         ]
       );
 
@@ -182,9 +182,24 @@ export async function performAuditSearch(
       };
 
       if (params.decrypt && e.encryptedPayload) {
-        // Decrypt to access tool, action, status, errorType
-        const encryptedStr = String(e.encryptedPayload) as EncryptedPayload;
-        const decrypted = encryptionService.decrypt(encryptedStr);
+        // Convert contract hex bytes to base64 string (format expected by encryption service)
+        let encryptedBase64: EncryptedPayload;
+
+        if (typeof e.encryptedPayload === 'string' && e.encryptedPayload.startsWith('0x')) {
+          // Hex string from contract (e.g., "0x8a4c5e9c...") -> convert to base64
+          encryptedBase64 = Buffer.from(e.encryptedPayload.slice(2), 'hex').toString('base64') as EncryptedPayload;
+        } else if (Buffer.isBuffer(e.encryptedPayload) || e.encryptedPayload instanceof Uint8Array) {
+          // Bytes from contract -> convert to base64
+          const buffer = Buffer.isBuffer(e.encryptedPayload)
+            ? e.encryptedPayload
+            : Buffer.from(e.encryptedPayload);
+          encryptedBase64 = buffer.toString('base64') as EncryptedPayload;
+        } else {
+          // Already base64 string (defensive fallback)
+          encryptedBase64 = String(e.encryptedPayload) as EncryptedPayload;
+        }
+
+        const decrypted = encryptionService.decrypt(encryptedBase64);
 
         if (decrypted.ok) {
           // decrypted.value is AuditPayload object

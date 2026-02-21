@@ -88,24 +88,64 @@ export async function runDemoScenario(): Promise<void> {
     }
 
     // ========================================================================
+    // STEP 1.5: Configure Demo Activity Level
+    // ========================================================================
+
+    console.log('\n📍 STEP 1.5: Configure Demo Activity Level');
+    console.log('-'.repeat(60));
+
+    const readline = await import('readline/promises');
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    const numCallsStr = await rl.question(
+      '\nHow many tool calls should we make? (default: 22): '
+    );
+    rl.close();
+
+    const numCalls = parseInt(numCallsStr) || 22;
+    console.log(`✓ Will make ${numCalls} tool calls to generate audit activity\n`);
+
+    // ========================================================================
     // STEP 2: Call GitHub tool (read endpoint)
     // ========================================================================
 
-    console.log('\n📍 STEP 2: Call GitHub API (GET /repos)');
+    console.log(`\n📍 STEP 2: Call GitHub API (GET /repos) - ${numCalls}x`);
     console.log('-'.repeat(60));
 
-    try {
-      const response = await agent.callTool(
-        'GET',
-        'https://api.github.com/repos/anthropics/claude-code'
-      );
+    let successCount = 0;
+    let failCount = 0;
 
-      console.log('✓ GitHub call succeeded');
-      console.log(`  Response: ${JSON.stringify(response.result).substring(0, 100)}...`);
-      ZuulAgent.printGovernance(response.governance);
-    } catch (error) {
-      console.log(`ℹ GitHub call attempt (expected in MVP): ${String(error)}`);
+    for (let i = 0; i < numCalls; i++) {
+      try {
+        const response = await agent.callTool(
+          'GET',
+          'https://api.github.com/repos/anthropics/claude-code'
+        );
+
+        successCount++;
+
+        // Only show details on first call to avoid spam
+        if (i === 0) {
+          console.log(`✓ Call 1/${numCalls} succeeded`);
+          console.log(`  Response: ${JSON.stringify(response.result).substring(0, 100)}...`);
+          ZuulAgent.printGovernance(response.governance);
+        } else if ((i + 1) % 10 === 0) {
+          // Progress update every 10 calls
+          console.log(`✓ Completed ${i + 1}/${numCalls} calls...`);
+        }
+      } catch (error) {
+        failCount++;
+        if (i === 0) {
+          // Show first error for debugging
+          console.log(`ℹ Call 1/${numCalls} failed: ${String(error)}`);
+        }
+      }
     }
+
+    console.log(`\n📊 Summary: ${successCount} succeeded, ${failCount} failed (total: ${numCalls})`);
 
     // ========================================================================
     // STEP 3: Try unauthorized action (POST = create)
@@ -420,7 +460,7 @@ export async function runDemoScenario(): Promise<void> {
       console.log('[8.1] Query audit logs by agent (encrypted)');
       try {
         const searchResp1 = await fetch(
-          `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}&limit=2`,
+          `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}`,
           { headers: { host: 'localhost:8080' } }
         );
 
@@ -429,7 +469,7 @@ export async function runDemoScenario(): Promise<void> {
           const searchData1 = (await searchResp1.json()) as any;
           console.log(`✓ Found ${searchData1.count} entries for agent`);
           if (searchData1.entries[0]) {
-            console.log(`  Entry #0: Tool=${searchData1.entries[0].tool}, Success=${searchData1.entries[0].isSuccess}`);
+            console.log(`  Entry #0: Agent=${searchData1.entries[0].agent.slice(0, 10)}..., Hash=${String(searchData1.entries[0].payloadHash).slice(0, 10)}...`);
           }
         } else {
           console.log(`ℹ Query returned HTTP ${searchResp1.status} (admin server may not be running)`);
@@ -442,20 +482,22 @@ export async function runDemoScenario(): Promise<void> {
       console.log('\n[8.2] Query audit logs by agent (decrypted)');
       try {
         const searchResp2 = await fetch(
-          `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}&decrypt=true&limit=1`,
+          `${adminBaseUrl}/admin/audit/search?agent=${queryAgent}&decrypt=true`,
           { headers: { host: 'localhost:8080' } }
         );
 
         if (searchResp2.ok) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const searchData2 = (await searchResp2.json()) as any;
+          console.log(`✓ Found ${searchData2.count} decrypted entries for agent`);
           if (searchData2.entries[0]) {
             const entry = searchData2.entries[0];
-            console.log(`✓ Decrypted entry:`);
-            console.log(`  - Tool: ${entry.payload?.tool}`);
-            console.log(`  - Action: ${entry.payload?.action}`);
-            console.log(`  - Endpoint: ${entry.payload?.endpoint?.slice(0, 50)}...`);
-            console.log(`  - Status: ${entry.payload?.status}`);
+            console.log(`  First entry:`);
+            console.log(`    - Tool: ${entry.tool}`);
+            console.log(`    - Action: ${entry.action}`);
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+            console.log(`    - Endpoint: ${String(entry.payload?.endpoint).slice(0, 50)}...`);
+            console.log(`    - Status: ${entry.status}`);
           }
         } else {
           console.log(`ℹ Query returned HTTP ${searchResp2.status}`);
@@ -464,18 +506,22 @@ export async function runDemoScenario(): Promise<void> {
         console.log(`ℹ Query failed: ${String(error).slice(0, 50)}`);
       }
 
-      // Query 3: Search by tool
-      console.log('\n[8.3] Query audit logs by tool');
+      // Query 3: Search by time range (use wide range to handle Hardhat clock skew)
+      console.log('\n[8.3] Query audit logs by time range (all time)');
       try {
+        // Use epoch 0 to far future to capture ALL entries regardless of clock skew
+        const startTime = 0;
+        const endTime = 9999999999; // Far future (year 2286)
+
         const searchResp3 = await fetch(
-          `${adminBaseUrl}/admin/audit/search?tool=github&limit=2`,
+          `${adminBaseUrl}/admin/audit/search?startTime=${startTime}&endTime=${endTime}`,
           { headers: { host: 'localhost:8080' } }
         );
 
         if (searchResp3.ok) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const searchData3 = (await searchResp3.json()) as any;
-          console.log(`✓ Found ${searchData3.count} entries for tool=github`);
+          console.log(`✓ Found ${searchData3.count} entries (all time)`);
         } else {
           console.log(`ℹ Query returned HTTP ${searchResp3.status}`);
         }
