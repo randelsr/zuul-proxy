@@ -56,10 +56,11 @@ roles:
         actions: [read, create]
 
 # Blockchain configuration
+# ADI Chain - UAE institutional L2 (ZKsync-based, EVM-compatible)
 chain:
-  name: hedera
-  chainId: 295
-  rpcUrl: ${HEDERA_RPC_URL}
+  name: adi
+  chainId: 36900
+  rpcUrl: ${ADI_RPC_URL}
   rbacContractAddress: ${RBAC_CONTRACT_ADDRESS}
   auditContractAddress: ${AUDIT_CONTRACT_ADDRESS}
 

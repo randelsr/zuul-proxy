@@ -18,6 +18,12 @@ const config: HardhatUserConfig = {
       type: "http",
       url: "http://127.0.0.1:8545",
     },
+    adi: {
+      type: "http",
+      url: process.env.ADI_RPC_URL ?? "https://rpc.adifoundation.ai/",
+      accounts: process.env.ADI_PRIVATE_KEY ? [process.env.ADI_PRIVATE_KEY] : [],
+      chainId: 36900,
+    },
     hederaTestnet: {
       type: "http",
       url: process.env.HEDERA_RPC_URL ?? "https://testnet.hashio.io/api",

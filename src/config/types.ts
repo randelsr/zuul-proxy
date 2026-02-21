@@ -41,7 +41,7 @@ export type RoleConfig = Readonly<{
  * Blockchain configuration
  */
 export type ChainConfig = Readonly<{
-  name: 'hedera' | 'base' | 'arbitrum' | 'optimism' | 'local';
+  name: 'adi' | 'hedera' | 'base' | 'arbitrum' | 'optimism' | 'local';
   chainId: number;
   rpcUrl: string;
   rbacContractAddress: string;
